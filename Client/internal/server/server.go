@@ -10,13 +10,19 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os/signal"
+	"path"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
+
+	"peer-ai-client/internal/config"
 )
 
 // ProxyHandler handles an OpenAI route after the listener has accepted it.
@@ -64,6 +70,9 @@ type Options struct {
 	// Proxy handles OpenAI routes. Nil means the 501 stub.
 	Proxy ProxyHandler
 
+	// Models returns the current configured services for GET /v1/models.
+	Models func() []config.Service
+
 	// Routes overrides the OpenAI route set. Nil/empty uses DefaultOpenAIRoutes.
 	Routes []Route
 
@@ -87,6 +96,40 @@ type Server struct {
 	logger *slog.Logger
 	mux    *http.ServeMux
 	srv    *http.Server
+}
+
+// ProbeService checks one backend and updates service.Healthy.
+// The caller can run this function before each heartbeat or from a worker.
+func ProbeService(ctx context.Context, service *config.Service, timeout time.Duration) error {
+	if service == nil {
+		return fmt.Errorf("service is nil")
+	}
+	service.Healthy = false
+	if timeout <= 0 {
+		return fmt.Errorf("probe timeout must be positive")
+	}
+	endpoint, err := url.Parse(service.Endpoint)
+	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" {
+		return fmt.Errorf("service %q has invalid endpoint", service.ID)
+	}
+	endpoint.Path = path.Join(endpoint.Path, strings.TrimPrefix(service.APIBase, "/"), "models")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return fmt.Errorf("create probe request for service %q: %w", service.ID, err)
+	}
+	probeCtx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	req = req.WithContext(probeCtx)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return fmt.Errorf("probe service %q: %w", service.ID, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("probe service %q returned HTTP %d", service.ID, resp.StatusCode)
+	}
+	service.Healthy = true
+	return nil
 }
 
 // New builds a Server and registers all routes on an internal ServeMux.
@@ -213,6 +256,10 @@ func (s *Server) register() {
 	}
 	for _, rt := range routes {
 		rt := rt
+		if rt.Method == http.MethodGet && rt.Path == "/v1/models" {
+			s.mux.HandleFunc("GET /v1/models", s.handleModels)
+			continue
+		}
 		s.mux.HandleFunc(rt.Method+" "+rt.Path, func(w http.ResponseWriter, r *http.Request) {
 			s.handleProxy(w, r)
 		})
@@ -267,6 +314,25 @@ func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
 			"duration", s.now().Sub(start).String(),
 		)
 	})
+}
+
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	services := []config.Service(nil)
+	if s.opts.Models != nil {
+		services = s.opts.Models()
+	}
+	type model struct {
+		ID      string `json:"id"`
+		Object  string `json:"object"`
+		OwnedBy string `json:"owned_by"`
+	}
+	models := make([]model, 0)
+	for _, service := range services {
+		for _, id := range service.Models {
+			models = append(models, model{ID: id, Object: "model", OwnedBy: string(service.Provider)})
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"object": "list", "data": models})
 }
 
 // healthResponse is the GET /healthz payload.
