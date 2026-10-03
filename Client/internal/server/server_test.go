@@ -1,8 +1,12 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -198,5 +202,102 @@ func TestLiveBindAndHealthz(t *testing.T) {
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("live /healthz status = %d, want 200", res.StatusCode)
+	}
+}
+
+func TestRequestLoggingHasRequiredFields(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	opts := testOptions()
+	opts.Logger = logger
+	s := New(opts)
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	var entry map[string]any
+	dec := json.NewDecoder(&buf)
+	if err := dec.Decode(&entry); err != nil {
+		t.Fatalf("log is not JSON: %v (%q)", err, buf.String())
+	}
+	for _, key := range []string{"method", "path", "status", "node_id", "component"} {
+		if _, ok := entry[key]; !ok {
+			t.Errorf("log missing key %q: %v", key, entry)
+		}
+	}
+	if entry["method"] != http.MethodGet {
+		t.Errorf("method = %v, want GET", entry["method"])
+	}
+	if entry["path"] != "/healthz" {
+		t.Errorf("path = %v, want /healthz", entry["path"])
+	}
+	if entry["node_id"] != "test-node" {
+		t.Errorf("node_id = %v, want test-node", entry["node_id"])
+	}
+	if entry["component"] != "server" {
+		t.Errorf("component = %v, want server", entry["component"])
+	}
+}
+
+func TestServeAndShutdownClean(t *testing.T) {
+	var buf bytes.Buffer
+	opts := testOptions()
+	opts.ListenHost = "127.0.0.1"
+	opts.ListenPort = 0
+	opts.Logger = slog.New(slog.NewJSONHandler(&buf, nil))
+	s := New(opts)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- s.Serve(ln)
+	}()
+
+	// Wait for the listener to accept. Poll healthz with mock addr.
+	url := "http://" + ln.Addr().String() + "/healthz"
+	var res *http.Response
+	for i := 0; i < 50; i++ {
+		res, err = http.Get(url)
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
+		t.Fatalf("GET /healthz: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", res.StatusCode)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+	select {
+	case err := <-serveErr:
+		if err != nil && err != http.ErrServerClosed {
+			t.Fatalf("Serve returned %v, want nil or ErrServerClosed", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not stop within 5s")
+	}
+}
+
+func TestShutdownWithoutServeIsNil(t *testing.T) {
+	s := New(testOptions())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := s.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown without Serve = %v, want nil", err)
 	}
 }

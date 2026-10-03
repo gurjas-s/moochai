@@ -2,21 +2,24 @@
 //
 // It binds listen_host:listen_port, serves GET /healthz, and registers the
 // OpenAI-compatible routes. Actual forwarding to local backends is owned by
-// #6 (internal/proxy); until then OpenAI routes delegate to a ProxyHandler
-// which defaults to a 501 stub. Graceful shutdown / signal handling and
-// request logging land in #7; this package exposes Shutdown so #7 can use it.
+// #6 (internal/proxy). This package adds the #7 data-plane scope: slog
+// request logs and graceful shutdown on SIGINT/SIGTERM. Health probing
+// stays with the control plane.
 package server
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
+	"os/signal"
 	"path"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"peer-ai-client/internal/config"
@@ -80,15 +83,19 @@ type Options struct {
 	// Now reports current time (for /healthz uptime). Nil means time.Now.
 	// Exposed for deterministic tests.
 	Now func() time.Time
+
+	// Logger receives structured request logs. Nil means slog.Default().
+	Logger *slog.Logger
 }
 
 // Server is the data-plane HTTP listener.
 type Server struct {
-	opts  Options
-	start time.Time
-	now   func() time.Time
-	mux   *http.ServeMux
-	srv   *http.Server
+	opts   Options
+	start  time.Time
+	now    func() time.Time
+	logger *slog.Logger
+	mux    *http.ServeMux
+	srv    *http.Server
 }
 
 // ProbeService checks one backend and updates service.Healthy.
@@ -135,11 +142,16 @@ func New(opts Options) *Server {
 	if now == nil {
 		now = time.Now
 	}
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	s := &Server{
-		opts:  opts,
-		start: start,
-		now:   now,
-		mux:   http.NewServeMux(),
+		opts:   opts,
+		start:  start,
+		now:    now,
+		logger: logger,
+		mux:    http.NewServeMux(),
 	}
 	s.register()
 	return s
@@ -151,26 +163,88 @@ func (s *Server) Addr() string {
 }
 
 // Handler exposes the underlying mux for tests and for httptest servers.
+// The handler includes the slog request log middleware.
 func (s *Server) Handler() http.Handler {
-	return s.mux
+	return s.loggingMiddleware(s.mux)
 }
 
 // ListenAndServe binds Addr and serves. It blocks until error or Shutdown.
 func (s *Server) ListenAndServe() error {
-	s.srv = &http.Server{
-		Addr:    s.Addr(),
-		Handler: s.mux,
+	ln, err := net.Listen("tcp", s.Addr())
+	if err != nil {
+		return err
 	}
-	return s.srv.ListenAndServe()
+	return s.Serve(ln)
 }
 
-// Shutdown gracefully stops a server started with ListenAndServe.
-// Signal wiring (SIGINT/SIGTERM) is owned by #7; this is just the primitive.
+// Serve accepts connections on ln. It blocks until error or Shutdown.
+// Use Serve with an ephemeral port in tests.
+func (s *Server) Serve(ln net.Listener) error {
+	s.srv = &http.Server{
+		Handler: s.Handler(),
+	}
+	return s.srv.Serve(ln)
+}
+
+// Shutdown gracefully stops a server started with ListenAndServe or Serve.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.srv == nil {
 		return nil
 	}
 	return s.srv.Shutdown(ctx)
+}
+
+// DefaultShutdownTimeout bounds graceful shutdown. Active connections
+// close within this time.
+const DefaultShutdownTimeout = 5 * time.Second
+
+// ListenAndServeWithGracefulShutdown serves Addr and stops cleanly on
+// SIGINT or SIGTERM. It shares ctx with the caller, so the control plane
+// can stop the heartbeat loop on the same signal. It exits within the
+// timeout.
+func (s *Server) ListenAndServeWithGracefulShutdown(ctx context.Context, shutdownTimeout time.Duration) error {
+	if shutdownTimeout <= 0 {
+		shutdownTimeout = DefaultShutdownTimeout
+	}
+	sigCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	s.srv = &http.Server{
+		Addr:    s.Addr(),
+		Handler: s.Handler(),
+	}
+	s.logger.Info("listener start",
+		"component", "server",
+		"node_id", s.opts.NodeID,
+		"addr", s.Addr(),
+		"version", s.opts.Version,
+	)
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.srv.ListenAndServe()
+	}()
+
+	select {
+	case <-sigCtx.Done():
+		s.logger.Info("shutdown signal",
+			"component", "server",
+			"node_id", s.opts.NodeID,
+		)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		_ = s.srv.Shutdown(shutdownCtx)
+		err := <-errCh
+		if err == http.ErrServerClosed {
+			return nil
+		}
+		return err
+	case err := <-errCh:
+		if err == http.ErrServerClosed {
+			return nil
+		}
+		return err
+	}
 }
 
 func (s *Server) register() {
@@ -190,6 +264,56 @@ func (s *Server) register() {
 			s.handleProxy(w, r)
 		})
 	}
+}
+
+// statusRecorder captures the status code for logs.
+// It forwards Flush to support SSE streams.
+type statusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (r *statusRecorder) WriteHeader(status int) {
+	if !r.wroteHeader {
+		r.status = status
+		r.wroteHeader = true
+		r.ResponseWriter.WriteHeader(status)
+	}
+}
+
+func (r *statusRecorder) Write(b []byte) (int, error) {
+	if !r.wroteHeader {
+		r.WriteHeader(http.StatusOK)
+	}
+	return r.ResponseWriter.Write(b)
+}
+
+func (r *statusRecorder) Flush() {
+	if !r.wroteHeader {
+		r.WriteHeader(http.StatusOK)
+	}
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// loggingMiddleware logs each request with slog. It records method,
+// path, status, duration, node_id, and component.
+func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := s.now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		s.logger.Info("request",
+			"component", "server",
+			"node_id", s.opts.NodeID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rec.status,
+			"duration", s.now().Sub(start).String(),
+		)
+	})
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
