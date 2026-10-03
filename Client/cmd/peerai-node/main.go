@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -22,20 +23,73 @@ import (
 
 const probeTimeout = 3 * time.Second
 
+// Log modes for --log-mode. Requests mode logs HTTP requests.
+// Dev mode adds debug detail for developers.
+const (
+	logModeRequests = "requests"
+	logModeDev      = "dev"
+)
+
 func main() {
 	configPath := flag.String("config", "", "path to node YAML configuration")
+	logMode := flag.String("log-mode", logDefault("PEERAI_LOG_MODE", logModeRequests), "log mode: requests or dev")
+	logFormat := flag.String("log-format", logDefault("PEERAI_LOG_FORMAT", "text"), "log format: text or json")
 	flag.Parse()
-	if err := run(*configPath); err != nil {
+	if err := run(*configPath, *logMode, *logFormat); err != nil {
 		slog.Error("node stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(configPath string) error {
-	cfg, _, err := config.Load(configPath)
+// Configure the default logger from mode and format.
+// Use requests mode for normal use. Use dev mode for debug work.
+func setupLogging(mode, format string) error {
+	var level slog.Level
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case logModeRequests, "":
+		level = slog.LevelInfo
+	case logModeDev:
+		level = slog.LevelDebug
+	default:
+		return fmt.Errorf("invalid log mode %q: use requests or dev", mode)
+	}
+	opts := &slog.HandlerOptions{Level: level}
+	var handler slog.Handler
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "text", "":
+		handler = slog.NewTextHandler(os.Stderr, opts)
+	case "json":
+		handler = slog.NewJSONHandler(os.Stderr, opts)
+	default:
+		return fmt.Errorf("invalid log format %q: use text or json", format)
+	}
+	slog.SetDefault(slog.New(handler))
+	return nil
+}
+
+// Read the flag default from the environment.
+// Fall back when the variable is empty or unset.
+func logDefault(key, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func run(configPath, logMode, logFormat string) error {
+	if err := setupLogging(logMode, logFormat); err != nil {
+		return err
+	}
+	cfg, resolved, err := config.Load(configPath)
 	if err != nil {
 		return err
 	}
+	slog.Debug("config load",
+		"component", "main",
+		"path", resolved,
+		"backends", len(cfg.Backends),
+		"services", len(cfg.Services),
+	)
 	nodeID, err := configuredNodeID(cfg.Node.ID)
 	if err != nil {
 		return err
@@ -55,6 +109,19 @@ func run(configPath string) error {
 	if err != nil {
 		return err
 	}
+	slog.Debug("node identity",
+		"component", "main",
+		"node_id", nodeID,
+		"tailscale_ip", tailscaleIP.String(),
+		"listen_addr", listenAddr,
+	)
+	slog.Info("node start",
+		"component", "main",
+		"node_id", nodeID,
+		"listen_addr", listenAddr,
+		"version", central.Version,
+		"log_mode", logMode,
+	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -66,6 +133,8 @@ func run(configPath string) error {
 		for i := range cfg.Services {
 			if err := server.ProbeService(ctx, &cfg.Services[i], probeTimeout); err != nil {
 				slog.Warn("backend probe failed", "component", "health", "service", cfg.Services[i].ID, "error", err)
+			} else {
+				slog.Debug("backend probe ok", "component", "health", "service", cfg.Services[i].ID)
 			}
 		}
 	}
@@ -87,6 +156,12 @@ func run(configPath string) error {
 		discMu.Lock()
 		discovered = found
 		discMu.Unlock()
+		slog.Debug("backend discovery ok",
+			"component", "discovery",
+			"backends", len(cfg.Backends),
+			"services", len(found),
+			"models", countModels(found),
+		)
 	}
 	discover(ctx)
 
@@ -129,10 +204,22 @@ func run(configPath string) error {
 	payload := func() central.Payload {
 		probe(ctx)
 		discover(ctx)
+		services := merged()
+		healthy := 0
+		for _, service := range services {
+			if service.Healthy {
+				healthy++
+			}
+		}
+		slog.Debug("heartbeat payload ready",
+			"component", "main",
+			"services", len(services),
+			"healthy", healthy,
+		)
 		return central.Payload{
 			NodeID: nodeID, Name: name, TailscaleIP: tailscaleIP.String(),
 			ListenAddr: listenAddr, Version: central.Version,
-			Services: merged(),
+			Services: services,
 		}
 	}
 
@@ -152,9 +239,19 @@ func run(configPath string) error {
 		return err
 	}
 
+	slog.Debug("node shutdown", "component", "main", "node_id", nodeID)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return nodeServer.Shutdown(shutdownCtx)
+}
+
+// Count the advertised models across discovered services.
+func countModels(services []config.Service) int {
+	total := 0
+	for _, service := range services {
+		total += len(service.Models)
+	}
+	return total
 }
 
 func configuredNodeID(value string) (string, error) {
