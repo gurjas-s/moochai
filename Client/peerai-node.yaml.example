@@ -1,0 +1,30 @@
+network:
+  # Tailscale IPv4 address of the PeerAI central server.
+  central_host: "100.64.0.10"
+  central_port: 8080
+
+  # Address for routed requests from central.
+  listen_host: "0.0.0.0"
+  listen_port: 9100
+
+  heartbeat_interval: 15s
+
+node:
+  name: "local-ai-node"
+  # Leave id empty to generate and persist ~/.config/peerai/node.id.
+  id: ""
+
+services:
+  - id: "local-llm"
+    name: "Local LLM"
+    type: "llm"
+    provider: "ollama"
+    endpoint: "http://127.0.0.1:11434"
+    api_base: "/v1"
+    models:
+      - "qwen2.5"
+    supports_streaming: true
+    healthy: false
+    meta:
+      context_window: 32768
+      max_tokens: 4096
