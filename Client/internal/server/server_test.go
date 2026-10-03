@@ -93,11 +93,17 @@ func TestOpenAIRoutesRegistered_Stub501(t *testing.T) {
 		req := httptest.NewRequest(tc.method, tc.path, rdr)
 		rec := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rec, req)
-		if rec.Code != http.StatusNotImplemented {
-			t.Errorf("%s %s status = %d, want 501 stub", tc.method, tc.path, rec.Code)
+		wantStatus := http.StatusNotImplemented
+		if tc.path == "/v1/models" {
+			wantStatus = http.StatusOK
 		}
-		if got := rec.Header().Get("X-PeerAI-Node"); got != "test-node" {
-			t.Errorf("%s %s X-PeerAI-Node = %q, want test-node", tc.method, tc.path, got)
+		if rec.Code != wantStatus {
+			t.Errorf("%s %s status = %d, want %d", tc.method, tc.path, rec.Code, wantStatus)
+		}
+		if tc.path != "/v1/models" {
+			if got := rec.Header().Get("X-PeerAI-Node"); got != "test-node" {
+				t.Errorf("%s %s X-PeerAI-Node = %q, want test-node", tc.method, tc.path, got)
+			}
 		}
 	}
 }
