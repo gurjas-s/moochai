@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -286,5 +288,78 @@ func TestUpstreamPathJoin(t *testing.T) {
 			t.Fatalf("upstreamPath(%q,%q,%q) = %q, want %q",
 				c.endpointPath, c.apiBase, c.incoming, got, c.want)
 		}
+	}
+}
+
+func slogBuffer() (*bytes.Buffer, *slog.Logger) {
+	var buf bytes.Buffer
+	return &buf, slog.New(slog.NewJSONHandler(&buf, nil))
+}
+
+func lastLog(t *testing.T, buf *bytes.Buffer) map[string]any {
+	t.Helper()
+	lines := strings.TrimSpace(buf.String())
+	if lines == "" {
+		t.Fatal("no log output")
+	}
+	// Take the last JSON line (forward + reject may log once per request).
+	last := lines
+	if idx := strings.LastIndex(lines, "\n"); idx >= 0 {
+		last = lines[idx+1:]
+	}
+	var entry map[string]any
+	if err := json.Unmarshal([]byte(last), &entry); err != nil {
+		t.Fatalf("log is not JSON: %v (%q)", err, last)
+	}
+	return entry
+}
+
+func TestProxyForwardLogHasModelFields(t *testing.T) {
+	srv := echoBackend(200, `{"ok":true}`, nil)
+	defer srv.Close()
+	buf, logger := slogBuffer()
+	h := NewHandler([]Service{
+		StaticService{ID: "s", Endpoint: srv.URL, APIBase: "/v1", Models: []string{"m"}, Healthy: true},
+	}, testNode).(*Handler).WithLogger(logger)
+
+	rr := postJSON(t, h, "/v1/chat/completions", `{"model":"m"}`, nil)
+	if rr.Code != 200 {
+		t.Fatalf("got %d, want 200", rr.Code)
+	}
+	entry := lastLog(t, buf)
+	for _, key := range []string{"method", "path", "model", "node_id", "component"} {
+		if _, ok := entry[key]; !ok {
+			t.Errorf("log missing key %q: %v", key, entry)
+		}
+	}
+	if entry["model"] != "m" {
+		t.Errorf("model = %v, want m", entry["model"])
+	}
+	if entry["component"] != "proxy" {
+		t.Errorf("component = %v, want proxy", entry["component"])
+	}
+	if entry["node_id"] != testNode {
+		t.Errorf("node_id = %v, want %s", entry["node_id"], testNode)
+	}
+}
+
+func TestProxyUnknownModelLogHasModel(t *testing.T) {
+	srv := echoBackend(200, `{}`, nil)
+	defer srv.Close()
+	buf, logger := slogBuffer()
+	h := NewHandler([]Service{
+		StaticService{ID: "s", Endpoint: srv.URL, APIBase: "/v1", Models: []string{"known"}, Healthy: true},
+	}, testNode).(*Handler).WithLogger(logger)
+
+	rr := postJSON(t, h, "/v1/chat/completions", `{"model":"nope"}`, nil)
+	if rr.Code != 400 {
+		t.Fatalf("got %d, want 400", rr.Code)
+	}
+	entry := lastLog(t, buf)
+	if entry["model"] != "nope" {
+		t.Errorf("model = %v, want nope", entry["model"])
+	}
+	if entry["component"] != "proxy" {
+		t.Errorf("component = %v, want proxy", entry["component"])
 	}
 }

@@ -37,6 +37,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -106,11 +107,12 @@ func NewHandler(services []Service, nodeID string) http.Handler {
 }
 
 // NewHandlerFunc serves forwarding with a dynamic provider.
+// The handler logs with slog.Default until WithLogger sets a logger.
 func NewHandlerFunc(provider Provider, nodeID string) http.Handler {
 	if provider == nil {
 		provider = func() []Service { return nil }
 	}
-	return &Handler{provider: provider, nodeID: nodeID, transport: defaultTransport()}
+	return &Handler{provider: provider, nodeID: nodeID, transport: defaultTransport(), logger: slog.Default()}
 }
 
 // Handler routes OpenAI-compatible requests to backends by model.
@@ -118,6 +120,24 @@ type Handler struct {
 	provider  Provider
 	nodeID    string
 	transport *http.Transport
+	logger    *slog.Logger
+}
+
+// WithLogger sets the structured logger. It returns the handler.
+func (h *Handler) WithLogger(l *slog.Logger) *Handler {
+	if l == nil {
+		l = slog.Default()
+	}
+	h.logger = l
+	return h
+}
+
+// log returns the active logger. It never returns nil.
+func (h *Handler) log() *slog.Logger {
+	if h.logger == nil {
+		return slog.Default()
+	}
+	return h.logger
 }
 
 type modelRequest struct {
@@ -238,12 +258,21 @@ func stripHopByHop(h http.Header) {
 }
 
 // ServeHTTP routes an incoming request to the backend serving its
-// model and reverse-proxies it.
+// model and reverse-proxies it. It logs each decision with slog.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	logger := h.log()
 	// 1. Buffer the body so we can inspect "model" and still forward the
 	// raw bytes unchanged.
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
 	if err != nil {
+		logger.Warn("proxy reject",
+			"component", "proxy",
+			"node_id", h.nodeID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"model", "",
+			"status", http.StatusRequestEntityTooLarge,
+		)
 		writeError(w, h.nodeID, http.StatusRequestEntityTooLarge, "request_too_large",
 			fmt.Sprintf("request body too large (limit %d bytes)", MaxBodyBytes))
 		return
@@ -252,17 +281,41 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 2. Extract model without altering the body.
 	var mr modelRequest
 	if len(bytes.TrimSpace(body)) == 0 {
+		logger.Warn("proxy reject",
+			"component", "proxy",
+			"node_id", h.nodeID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"model", "",
+			"status", http.StatusBadRequest,
+		)
 		writeError(w, h.nodeID, http.StatusBadRequest, "invalid_request_error",
 			"missing request body: OpenAI requests require a JSON \"model\" field")
 		return
 	}
 	dec := json.NewDecoder(bytes.NewReader(body))
 	if err := dec.Decode(&mr); err != nil {
+		logger.Warn("proxy reject",
+			"component", "proxy",
+			"node_id", h.nodeID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"model", "",
+			"status", http.StatusBadRequest,
+		)
 		writeError(w, h.nodeID, http.StatusBadRequest, "invalid_request_error",
 			"invalid JSON body: "+err.Error())
 		return
 	}
 	if mr.Model == "" {
+		logger.Warn("proxy reject",
+			"component", "proxy",
+			"node_id", h.nodeID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"model", "",
+			"status", http.StatusBadRequest,
+		)
 		writeError(w, h.nodeID, http.StatusBadRequest, "invalid_request_error",
 			"missing \"model\" in request body: no backend can be selected")
 		return
@@ -271,6 +324,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 3. Route by model.
 	svc := findService(h.provider(), mr.Model)
 	if svc == nil {
+		logger.Warn("proxy reject",
+			"component", "proxy",
+			"node_id", h.nodeID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"model", mr.Model,
+			"status", http.StatusBadRequest,
+		)
 		writeError(w, h.nodeID, http.StatusBadRequest, "model_not_found",
 			fmt.Sprintf("unknown model %q: no configured service serves it", mr.Model))
 		return
@@ -278,6 +339,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 4. Reject unhealthy backends with 503 (team decision).
 	if !svc.BackendHealthy() {
+		logger.Warn("proxy reject",
+			"component", "proxy",
+			"node_id", h.nodeID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"model", mr.Model,
+			"status", http.StatusServiceUnavailable,
+			"service", svc.ServiceID(),
+		)
 		writeError(w, h.nodeID, http.StatusServiceUnavailable, "service_unavailable",
 			fmt.Sprintf("model %q is served by %q, which is currently unhealthy", mr.Model, svc.ServiceID()))
 		return
@@ -286,6 +356,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 5. Parse upstream endpoint.
 	target, err := url.Parse(svc.BackendEndpoint())
 	if err != nil || target.Scheme == "" || target.Host == "" {
+		logger.Error("proxy reject",
+			"component", "proxy",
+			"node_id", h.nodeID,
+			"method", r.Method,
+			"path", r.URL.Path,
+			"model", mr.Model,
+			"status", http.StatusBadGateway,
+			"service", svc.ServiceID(),
+		)
 		writeError(w, h.nodeID, http.StatusBadGateway, "bad_gateway",
 			fmt.Sprintf("service %q has invalid endpoint %q", svc.ServiceID(), svc.BackendEndpoint()))
 		return
@@ -319,6 +398,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			logger.Error("proxy upstream error",
+				"component", "proxy",
+				"node_id", h.nodeID,
+				"method", r.Method,
+				"path", r.URL.Path,
+				"model", mr.Model,
+				"status", http.StatusBadGateway,
+				"service", svc.ServiceID(),
+			)
 			writeError(w, h.nodeID, http.StatusBadGateway, "bad_gateway",
 				fmt.Sprintf("upstream %q unreachable: %v", svc.ServiceID(), err))
 		},
@@ -330,6 +418,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r.GetBody = func() (io.ReadCloser, error) {
 		return io.NopCloser(bytes.NewReader(body)), nil
 	}
+
+	// Log the route decision. The proxy writes the response directly.
+	logger.Info("proxy forward",
+		"component", "proxy",
+		"node_id", h.nodeID,
+		"method", r.Method,
+		"path", r.URL.Path,
+		"model", mr.Model,
+		"service", svc.ServiceID(),
+	)
 
 	// Serve with the client context as-is: client disconnect still
 	// cancels upstream, but no total deadline is imposed here so an
