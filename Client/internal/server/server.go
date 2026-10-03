@@ -10,10 +10,16 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
+	"strings"
 	"time"
+
+	"peer-ai-client/internal/config"
 )
 
 // ProxyHandler handles an OpenAI route after the listener has accepted it.
@@ -80,6 +86,40 @@ type Server struct {
 	now   func() time.Time
 	mux   *http.ServeMux
 	srv   *http.Server
+}
+
+// ProbeService checks one backend and updates service.Healthy.
+// The caller can run this function before each heartbeat or from a worker.
+func ProbeService(ctx context.Context, service *config.Service, timeout time.Duration) error {
+	if service == nil {
+		return fmt.Errorf("service is nil")
+	}
+	service.Healthy = false
+	if timeout <= 0 {
+		return fmt.Errorf("probe timeout must be positive")
+	}
+	endpoint, err := url.Parse(service.Endpoint)
+	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" {
+		return fmt.Errorf("service %q has invalid endpoint", service.ID)
+	}
+	endpoint.Path = path.Join(endpoint.Path, strings.TrimPrefix(service.APIBase, "/"), "models")
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return fmt.Errorf("create probe request for service %q: %w", service.ID, err)
+	}
+	probeCtx, cancel := context.WithTimeout(req.Context(), timeout)
+	defer cancel()
+	req = req.WithContext(probeCtx)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		return fmt.Errorf("probe service %q: %w", service.ID, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("probe service %q returned HTTP %d", service.ID, resp.StatusCode)
+	}
+	service.Healthy = true
+	return nil
 }
 
 // New builds a Server and registers all routes on an internal ServeMux.
