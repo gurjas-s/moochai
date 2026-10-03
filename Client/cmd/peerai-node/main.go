@@ -71,14 +71,41 @@ func run(configPath string) error {
 	}
 	probe(ctx)
 
-	proxyServices := func() []proxy.Service {
-		servicesMu.RLock()
-		defer servicesMu.RUnlock()
-		services := make([]proxy.Service, 0, len(cfg.Services))
-		for _, service := range cfg.Services {
-			services = append(services, configServiceAdapter{service: service})
+	var discMu sync.RWMutex
+	discovered := []config.Service(nil)
+	discover := func(ctx context.Context) {
+		if len(cfg.Backends) == 0 {
+			return
 		}
-		return services
+		discCtx, cancel := context.WithTimeout(ctx, config.DefaultDiscoverTimeout)
+		defer cancel()
+		found := config.DiscoverAll(discCtx, http.DefaultClient, cfg.Backends)
+		if len(cfg.Backends) > 0 && len(found) == 0 {
+			slog.Warn("backend discovery found no models", "component", "discovery")
+			return
+		}
+		discMu.Lock()
+		discovered = found
+		discMu.Unlock()
+	}
+	discover(ctx)
+
+	merged := func() []config.Service {
+		servicesMu.RLock()
+		static := append([]config.Service(nil), cfg.Services...)
+		servicesMu.RUnlock()
+		discMu.RLock()
+		defer discMu.RUnlock()
+		return append(static, discovered...)
+	}
+
+	proxyServices := func() []proxy.Service {
+		found := merged()
+		out := make([]proxy.Service, 0, len(found))
+		for _, service := range found {
+			out = append(out, configServiceAdapter{service: service})
+		}
+		return out
 	}
 	proxyHandler := proxy.NewHandlerFunc(proxyServices, nodeID)
 	nodeServer := server.New(server.Options{
@@ -91,9 +118,7 @@ func run(configPath string) error {
 			proxyHandler.ServeHTTP(w, r)
 		}),
 		Models: func() []config.Service {
-			servicesMu.RLock()
-			defer servicesMu.RUnlock()
-			return append([]config.Service(nil), cfg.Services...)
+			return merged()
 		},
 	})
 
@@ -103,12 +128,11 @@ func run(configPath string) error {
 	}
 	payload := func() central.Payload {
 		probe(ctx)
-		servicesMu.RLock()
-		defer servicesMu.RUnlock()
+		discover(ctx)
 		return central.Payload{
 			NodeID: nodeID, Name: name, TailscaleIP: tailscaleIP.String(),
 			ListenAddr: listenAddr, Version: central.Version,
-			Services: append([]config.Service(nil), cfg.Services...),
+			Services: merged(),
 		}
 	}
 

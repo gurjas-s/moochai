@@ -49,24 +49,28 @@ node:
   name: "local-ai-node"
   id: ""
 
-services:
-  - id: "local-llm"
-    name: "Local LLM"
-    type: "llm"
-    provider: "ollama"
+backends:
+  - name: "local-llm"
     endpoint: "http://127.0.0.1:11434"
-    api_base: "/v1"
-    models:
-      - "qwen2.5"
-    supports_streaming: true
-    healthy: false
+    provider: "ollama"
+    expose: ["*"]
 ```
+
+Set `backends[].endpoint` to the local backend URL.
+Set `backends[].provider` to enable extras (`ollama`, `llamacpp`, or empty for generic).
+Leave `expose` empty or `["*"]` to advertise all discovered models.
+List model names in `expose` to advertise only those models.
+Set `backends[].model_meta.<model>.context_window` when the backend hides it.
+
+The node queries `GET {endpoint}/v1/models` at startup and before each
+heartbeat, then sends the full service objects to central.
+The broadcast shape is unchanged. Static `services[]` entries still load
+and merge with discovered ones.
 
 Set `network.central_host` to the Tailscale IPv4 address of central.
 Set `network.central_port` to the central HTTP port.
 Set `network.listen_port` to the port that central can reach.
-Set `services[].endpoint` to the local backend URL.
-Set `services[].models` to the model IDs served by that backend.
+Set `backends[].endpoint` to the local backend URL.
 
 Leave `node.id` empty to generate a stable ID.
 The client stores the generated ID in `~/.config/peerai/node.id`.
@@ -83,7 +87,7 @@ ollama serve
 ollama pull qwen2.5
 ```
 
-Use the backend's actual model ID in `services[].models`.
+Use the backend's actual model ID in `backends[].expose`.
 The client checks backend health with `GET /v1/models`.
 
 ## Start the client
@@ -129,7 +133,7 @@ curl http://127.0.0.1:9100/v1/chat/completions \
   }'
 ```
 
-The `model` value must match one entry in `services[].models`.
+The `model` value must match one discovered or configured model.
 The client forwards the request to the matching backend.
 
 ## Verify central registration
