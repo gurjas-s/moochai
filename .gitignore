@@ -31,3 +31,7 @@ go.work.sum
 .idea/
 .vscode/
 .zed/
+
+# go files
+go.sum
+peerai-serv

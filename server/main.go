@@ -29,7 +29,7 @@ func main() {
 	}
 	defer ln.Close()
 
-	log.Printf("serving on %s", ln.Addr())
+	log.Printf("Server Running on Port %s", ln.Addr())
 	log.Fatal(http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "hello from %s\n", *hostname)
 	})))
