@@ -19,6 +19,10 @@ type Config struct {
 	Network  Network   `yaml:"network"`
 	Node     Node      `yaml:"node"`
 	Services []Service `yaml:"services"`
+	// Backends is the simplified config form. Each entry names one local
+	// backend. The node discovers models from the backend and builds the
+	// broadcast Service objects. The broadcast shape stays unchanged.
+	Backends []Backend `yaml:"backends"`
 }
 
 type Network struct {
@@ -116,6 +120,111 @@ var validProviders = map[Provider]bool{
 	ProviderVM: true, ProviderCustom: true,
 }
 
+// DefaultAPIBase is used when a backend omits api_base.
+const DefaultAPIBase = "/v1"
+
+// Backend names one local model service. The node fills models and meta
+// with discovery. The user only chooses the endpoint and the expose list.
+type Backend struct {
+	Name string `yaml:"name"`
+	// Endpoint is the backend HTTP URL (e.g. http://127.0.0.1:8000).
+	Endpoint string `yaml:"endpoint"`
+	// APIBase defaults to /v1 when empty.
+	APIBase string `yaml:"api_base"`
+	// Provider enables extras. Empty means generic OpenAI (models list
+	// only). Set ollama for /api/show or llamacpp for /props.
+	Provider Provider `yaml:"provider"`
+	// Type defaults to llm when empty.
+	Type ServiceType `yaml:"type"`
+	// Expose lists model IDs to advertise. Empty or ["*"] means all
+	// discovered models. Explicit names filter the list down.
+	Expose []string `yaml:"expose"`
+	// SupportsStreaming defaults to true. Set false to disable it.
+	SupportsStreaming *bool `yaml:"supports_streaming"`
+	// ModelMeta holds manual overrides per model ID. Config wins over
+	// discovery. Use it when the backend hides context_window.
+	ModelMeta map[string]ModelMeta `yaml:"model_meta"`
+}
+
+// ModelMeta overrides discovery for one model.
+type ModelMeta struct {
+	ContextWindow *int `yaml:"context_window"`
+	MaxTokens     *int `yaml:"max_tokens"`
+}
+
+// ResolvedAPIBase returns APIBase or the default.
+func (b Backend) ResolvedAPIBase() string {
+	if b.APIBase == "" {
+		return DefaultAPIBase
+	}
+	return b.APIBase
+}
+
+// ResolvedType returns Type or the default.
+func (b Backend) ResolvedType() ServiceType {
+	if b.Type == "" {
+		return ServiceTypeLLM
+	}
+	return b.Type
+}
+
+// ResolvedProvider returns Provider or the generic default.
+func (b Backend) ResolvedProvider() Provider {
+	if b.Provider == "" {
+		return ProviderOpenAILike
+	}
+	return b.Provider
+}
+
+// ResolvedStreaming returns SupportsStreaming or true when unset.
+func (b Backend) ResolvedStreaming() bool {
+	if b.SupportsStreaming == nil {
+		return true
+	}
+	return *b.SupportsStreaming
+}
+
+// Validate checks that a backend entry can be discovered.
+func (b Backend) Validate() error {
+	if strings.TrimSpace(b.Name) == "" {
+		return errors.New("name is required")
+	}
+	endpoint, err := url.Parse(b.Endpoint)
+	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" ||
+		(endpoint.Scheme != "http" && endpoint.Scheme != "https") {
+		return errors.New("endpoint must be a valid HTTP URL")
+	}
+	if endpoint.User != nil {
+		return errors.New("endpoint must not contain user information")
+	}
+	if b.APIBase != "" && !strings.HasPrefix(b.APIBase, "/") {
+		return errors.New("api_base must start with /")
+	}
+	if b.Provider != "" && !validProviders[b.Provider] {
+		return fmt.Errorf("provider %q is invalid", b.Provider)
+	}
+	if b.Type != "" && !validServiceTypes[b.Type] {
+		return fmt.Errorf("type %q is invalid", b.Type)
+	}
+	for _, name := range b.Expose {
+		if strings.TrimSpace(name) == "" {
+			return errors.New("expose must not contain empty values")
+		}
+	}
+	for id, meta := range b.ModelMeta {
+		if strings.TrimSpace(id) == "" {
+			return errors.New("model_meta must not contain empty model IDs")
+		}
+		if meta.ContextWindow != nil && *meta.ContextWindow <= 0 {
+			return fmt.Errorf("model_meta %q context_window must be positive", id)
+		}
+		if meta.MaxTokens != nil && *meta.MaxTokens <= 0 {
+			return fmt.Errorf("model_meta %q max_tokens must be positive", id)
+		}
+	}
+	return nil
+}
+
 // Load discovers or loads a configuration file. An explicit path is required
 // when path is not empty; otherwise default paths are checked in order.
 func Load(path string) (Config, string, error) {
@@ -181,6 +290,16 @@ func (c Config) Validate() error {
 		if err := service.validate(i, seen); err != nil {
 			return err
 		}
+	}
+	seenBackends := make(map[string]bool, len(c.Backends))
+	for i, backend := range c.Backends {
+		if seenBackends[backend.Name] {
+			return fmt.Errorf("backends[%d].name %q is duplicated", i, backend.Name)
+		}
+		if err := backend.Validate(); err != nil {
+			return fmt.Errorf("backends[%d]: %w", i, err)
+		}
+		seenBackends[backend.Name] = true
 	}
 	return nil
 }

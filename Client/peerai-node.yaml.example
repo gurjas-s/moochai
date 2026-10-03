@@ -14,17 +14,35 @@ node:
   # Leave id empty to generate and persist ~/.config/peerai/node.id.
   id: ""
 
-services:
-  - id: "local-llm"
-    name: "Local LLM"
-    type: "llm"
-    provider: "ollama"
+# Simplified form: name one backend per local server. The node discovers
+# models from GET {endpoint}{api_base}/models and builds the broadcast
+# services. The broadcast shape sent to central stays unchanged.
+backends:
+  - name: "local-llm"
     endpoint: "http://127.0.0.1:11434"
-    api_base: "/v1"
-    models:
-      - "qwen2.5"
-    supports_streaming: true
-    healthy: false
-    meta:
-      context_window: 32768
-      max_tokens: 4096
+    # api_base defaults to /v1. provider enables extras: ollama reads
+    # POST /api/show, llamacpp reads GET /props. Empty means generic.
+    provider: "ollama"
+    # expose defaults to all models. List names to filter down.
+    expose: ["*"]
+    # model_meta overrides discovery per model. Use it when the backend
+    # hides context_window.
+    model_meta:
+      qwen2.5:
+        context_window: 32768
+
+# Legacy form: static services still work. Discovery merges with this list.
+# services:
+#   - id: "local-llm"
+#     name: "Local LLM"
+#     type: "llm"
+#     provider: "ollama"
+#     endpoint: "http://127.0.0.1:11434"
+#     api_base: "/v1"
+#     models:
+#       - "qwen2.5"
+#     supports_streaming: true
+#     healthy: false
+#     meta:
+#       context_window: 32768
+#       max_tokens: 4096
