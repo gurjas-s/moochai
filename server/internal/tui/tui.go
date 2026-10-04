@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,9 +19,8 @@ import (
 )
 
 const (
-	maxLines    = 2000
-	maxNodeRows = 8
-	staleAfter  = 20 * time.Second
+	maxLines   = 2000
+	staleAfter = 20 * time.Second
 )
 
 var (
@@ -138,14 +139,13 @@ func (m *model) View() string {
 	if m.width == 0 {
 		return ""
 	}
-	inner := m.width - 4 // border and padding
 	header := m.header()
-	nodes := boxStyle.Width(m.width - 2).Render(m.nodeList(inner))
+	address := m.address()
 	footer := m.footer()
-	h := m.height - lipgloss.Height(header) - lipgloss.Height(nodes) - lipgloss.Height(footer) - 2
+	h := m.height - lipgloss.Height(header) - lipgloss.Height(address) - lipgloss.Height(footer) - 2
 	h = max(1, h-1) // The label takes one line.
-	console := boxStyle.Width(m.width - 2).Render(labelStyle.Render("CONSOLE") + "\n" + m.console(inner, h))
-	return lipgloss.JoinVertical(lipgloss.Left, header, nodes, console, footer)
+	console := boxStyle.Width(m.width - 2).Render(labelStyle.Render("CONSOLE") + "\n" + m.console(m.width-4, h))
+	return lipgloss.JoinVertical(lipgloss.Left, header, address, console, footer)
 }
 
 // logoArt is the title in the ANSI Shadow figlet font.
@@ -181,30 +181,45 @@ var logo = func() string {
 		Padding(0, 2).Render(strings.Join(rows, "\n"))
 }()
 
+// header returns the top row: the logo, the NODES box, and the MODELS box at the same height.
+// A narrow terminal shows a one-line title in place of the logo.
 func (m *model) header() string {
-	where := lipgloss.NewStyle().Foreground(green).Render("● tailnet " + m.addr)
-	hints := []string{
-		dimStyle.Render("OpenAI base URL ") + "http://" + m.addr + "/v1",
-		dimStyle.Render("join            ") + "curl -fsSL http://" + m.addr + "/join.sh | sh",
+	rows, left, title := lipgloss.Height(logo)-2, logo, ""
+	if m.width < lipgloss.Width(logo)+50 {
+		left = ""
+		title = titleStyle.Render("Mooch.ai Central") + "\n"
 	}
-	if !m.tailnet {
-		where = lipgloss.NewStyle().Foreground(yellow).Render("● local only " + m.addr)
-		hints = []string{dimStyle.Render("Other machines cannot join."), dimStyle.Render("Listen on a Tailscale IP to share models.")}
+	room := m.width - lipgloss.Width(left)
+	nodesW := room * 55 / 100
+	box := func(w int, body string) string {
+		return boxStyle.Width(w - 2).Height(rows).Render(body)
 	}
-	info := append([]string{labelStyle.Render("CENTRAL"), where, ""}, hints...)
-	// A narrow terminal shows a one-line title in place of the logo.
-	if m.width < lipgloss.Width(logo)+30 {
-		top := titleStyle.Render("Mooch.ai Central") + "  " + where
-		return ansi.Truncate(" "+top, m.width, "…") + "\n" + ansi.Truncate(" "+hints[0], m.width, "…")
-	}
-	room := m.width - lipgloss.Width(logo) - 3
-	for i, l := range info {
-		info[i] = ansi.Truncate(l, room, "…")
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Center, logo, "   ", strings.Join(info, "\n"))
+	nodes := box(nodesW, m.nodeList(nodesW-4, rows))
+	models := box(room-nodesW, m.modelList(room-nodesW-4, rows))
+	return title + lipgloss.JoinHorizontal(lipgloss.Top, left, nodes, models)
 }
 
-func (m *model) nodeList(width int) string {
+// address returns one line with the central address, the OpenAI base URL, and the join command.
+func (m *model) address() string {
+	line := lipgloss.NewStyle().Foreground(green).Render("● tailnet "+m.addr) +
+		dimStyle.Render("   OpenAI base URL ") + "http://" + m.addr + "/v1" +
+		dimStyle.Render("   join ") + "curl -fsSL http://" + m.addr + "/join.sh | sh"
+	if !m.tailnet {
+		line = lipgloss.NewStyle().Foreground(yellow).Render("● local only "+m.addr) +
+			dimStyle.Render("   Other machines cannot join. Listen on a Tailscale IP to share models.")
+	}
+	return ansi.Truncate(" "+line, m.width, "…")
+}
+
+// fit cuts rows to height lines. The last line counts the rows that do not fit.
+func fit(rows []string, height int) []string {
+	if len(rows) <= height {
+		return rows
+	}
+	return append(rows[:height-1], dimStyle.Render(fmt.Sprintf("+ %d more", len(rows)-height+1)))
+}
+
+func (m *model) nodeList(width, height int) string {
 	label := labelStyle.Render("NODES") + dimStyle.Render(fmt.Sprintf(" %d connected", len(m.nodes)))
 	if len(m.nodes) == 0 {
 		return label + "\n" + dimStyle.Render("No nodes yet. Run the join command on a machine with a model backend.")
@@ -214,25 +229,55 @@ func (m *model) nodeList(width int) string {
 		nameW = max(nameW, len(feed.Name(n)))
 		ipW = max(ipW, len(n.TailscaleIP))
 	}
-	rows := []string{label}
-	for i, n := range m.nodes {
-		if i == maxNodeRows {
-			rows = append(rows, dimStyle.Render(fmt.Sprintf("+ %d more", len(m.nodes)-i)))
-			break
-		}
+	var rows []string
+	for _, n := range m.nodes {
 		age := m.now.Sub(n.LastSeen)
 		dot := lipgloss.NewStyle().Foreground(green).Render("●")
 		if age > staleAfter {
 			dot = lipgloss.NewStyle().Foreground(yellow).Render("●")
 		}
+		models := fmt.Sprintf("%d models", len(feed.Models(n)))
+		if len(feed.Models(n)) == 1 {
+			models = "1 model"
+		}
 		row := fmt.Sprintf("%s %s  %s  %s  %s", dot,
 			lipgloss.NewStyle().Foreground(cyan).Bold(true).Render(fmt.Sprintf("%-*s", nameW, feed.Name(n))),
 			dimStyle.Render(fmt.Sprintf("%-*s", ipW, n.TailscaleIP)),
-			dimStyle.Render(fmt.Sprintf("seen %3ds ago", int(max(0, age.Seconds())))),
-			lipgloss.NewStyle().Foreground(magenta).Render(strings.Join(feed.Models(n), ", ")))
+			dimStyle.Render(fmt.Sprintf("%3ds ago", int(max(0, age.Seconds())))),
+			lipgloss.NewStyle().Foreground(magenta).Render(models))
 		rows = append(rows, ansi.Truncate(row, width, "…"))
 	}
-	return strings.Join(rows, "\n")
+	return strings.Join(append([]string{label}, fit(rows, height-1)...), "\n")
+}
+
+// modelList shows each model that a healthy service serves, with the nodes that serve it.
+func (m *model) modelList(width, height int) string {
+	servedBy := map[string][]string{}
+	for _, n := range m.nodes {
+		for _, s := range n.Services {
+			for _, id := range s.Models {
+				if s.Healthy && !slices.Contains(servedBy[id], feed.Name(n)) {
+					servedBy[id] = append(servedBy[id], feed.Name(n))
+				}
+			}
+		}
+	}
+	ids := slices.Sorted(maps.Keys(servedBy))
+	label := labelStyle.Render("MODELS") + dimStyle.Render(fmt.Sprintf(" %d available", len(ids)))
+	if len(ids) == 0 {
+		return label + "\n" + dimStyle.Render("No models yet.")
+	}
+	idW := 0
+	for _, id := range ids {
+		idW = max(idW, len(id))
+	}
+	var rows []string
+	for _, id := range ids {
+		row := lipgloss.NewStyle().Foreground(magenta).Render(fmt.Sprintf("%-*s", idW, id)) + "  " +
+			dimStyle.Render(strings.Join(servedBy[id], ", "))
+		rows = append(rows, ansi.Truncate(row, width, "…"))
+	}
+	return strings.Join(append([]string{label}, fit(rows, height-1)...), "\n")
 }
 
 // console returns the last height screen lines above the scroll position. Long lines wrap.
