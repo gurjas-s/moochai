@@ -291,9 +291,17 @@ func (m *model) console(width, height int) string {
 	return strings.Join(append(view, make([]string, height-len(view))...), "\n")
 }
 
+// The feed starts the borders of a message frame with these texts.
+var frameTop, frameBottom = strings.Repeat(" ", 10) + "╭─", strings.Repeat(" ", 10) + "╰─"
+
 // wrap cuts line into screen lines of width. Continuation lines start under the message, after the time and tag.
 // Inside a message frame, continuation lines keep the rail and its colour.
+// A frame border fills the full width.
 func wrap(line string, width int) []string {
+	if plain := ansi.Strip(line); strings.HasPrefix(plain, frameTop) || strings.HasPrefix(plain, frameBottom) {
+		i := strings.IndexAny(line, "╭╰") + len("╭") // Keep the spaces, the colour, and the corner.
+		return []string{line[:i] + strings.Repeat("─", max(0, width-11)) + "\033[0m"}
+	}
 	indent := strings.Repeat(" ", 16) // "15:04:05  ROUTE "
 	if r := []rune(ansi.Strip(line)); len(r) > 10 && r[10] == '│' {
 		rail := ansi.TruncateLeft(ansi.Truncate(line, 11, ""), 10, "")

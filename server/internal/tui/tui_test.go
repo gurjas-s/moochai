@@ -68,7 +68,13 @@ func TestWrap(t *testing.T) {
 		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 
-	// A line in a request block keeps the rail on its continuation lines.
+	// A frame border fills the width and keeps its colour.
+	got = wrap("          \033[34m╭"+strings.Repeat("─", 60)+"\033[0m", 30)
+	if len(got) != 1 || ansi.Strip(got[0]) != "          ╭"+strings.Repeat("─", 19) || !strings.HasPrefix(got[0], "          \033[34m╭") {
+		t.Fatalf("border = %q", got)
+	}
+
+	// A line in a message frame keeps the rail on its continuation lines.
 	got = wrap("12:00:00  │ REQ   "+strings.Repeat("x", 20), 30)
 	want = []string{
 		"12:00:00  │ REQ   xxxxxxxxxxxx",
