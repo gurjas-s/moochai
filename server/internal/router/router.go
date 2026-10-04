@@ -16,6 +16,7 @@ import (
 	"mooch-serv/internal/feed"
 	"mooch-serv/internal/registry"
 	"mooch-serv/internal/respond"
+	"mooch-serv/internal/stats"
 )
 
 const maxRequestBody = 32 << 20
@@ -32,6 +33,8 @@ type Handler struct {
 	log   *slog.Logger
 	feed  *feed.Feed
 	proxy *httputil.ReverseProxy
+	// Record gets one row for each forwarded request. Nil records nothing.
+	Record func(stats.Request)
 }
 
 // New returns a router. A nil feed prints no events.
@@ -108,14 +111,21 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("forward", "method", r.Method, "path", r.URL.Path, "model", req.Model, "node_id", node.NodeID)
-	from, to := h.requester(r), feed.Name(node)
+	from, to := Requester(h.reg, r), feed.Name(node)
 	h.feed.Route(from, req.Model, to)
 	h.feed.Request(from, to, r.Method, r.URL.Path, feed.Preview(body))
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	w = rec
+	path := r.URL.Path
 	defer func() {
-		h.feed.Response(to, from, rec.status, time.Since(start), feed.ResponsePreview(rec.body.Bytes()))
+		d := time.Since(start)
+		h.feed.Response(to, from, rec.status, d, feed.ResponsePreview(rec.body.Bytes()))
+		if h.Record != nil {
+			prompt, completion := stats.Usage(rec.body.Bytes())
+			h.Record(stats.Request{Time: start, Requester: from, Node: to, Model: req.Model, Path: path,
+				Status: rec.status, Duration: d, BytesOut: rec.bytes, PromptTokens: prompt, CompletionTokens: completion})
+		}
 	}()
 
 	r.URL = &url.URL{Scheme: "http", Host: node.ListenAddr, Path: r.URL.Path, RawQuery: r.URL.RawQuery}
@@ -125,10 +135,10 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
 	h.proxy.ServeHTTP(w, r)
 }
 
-// requester names the caller: the node at the remote IP, else the remote IP.
-func (h *Handler) requester(r *http.Request) string {
+// Requester names the caller: the node at the remote IP, else the remote IP.
+func Requester(reg *registry.Registry, r *http.Request) string {
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	if n, ok := h.reg.NodeByIP(host); ok {
+	if n, ok := reg.NodeByIP(host); ok {
 		return feed.Name(n)
 	}
 	return host
@@ -137,14 +147,17 @@ func (h *Handler) requester(r *http.Request) string {
 // maxPreviewBody limits the response bytes that the feed keeps for its preview.
 const maxPreviewBody = 64 << 10
 
-// statusRecorder keeps the response status and the start of the body. Unwrap lets the proxy flush stream chunks.
+// statusRecorder keeps the response status, the byte count, and the start of the body.
+// Unwrap lets the proxy flush stream chunks.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
+	bytes  int64
 	body   bytes.Buffer
 }
 
 func (s *statusRecorder) Write(b []byte) (int, error) {
+	s.bytes += int64(len(b))
 	if room := maxPreviewBody - s.body.Len(); room > 0 {
 		s.body.Write(b[:min(len(b), room)])
 	}

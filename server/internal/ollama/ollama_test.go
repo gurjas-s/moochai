@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mooch-serv/internal/registry"
+	"mooch-serv/internal/stats"
 )
 
 func TestTagsAndShow(t *testing.T) {
@@ -78,5 +79,42 @@ func TestChatTranslatesNonStreamingResponse(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"content":"hello"`) {
 		t.Fatalf("chat = %d %s", resp.StatusCode, body)
+	}
+}
+
+func TestChatStreamRecordsRequest(t *testing.T) {
+	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(node.Close)
+	reg := registry.New(time.Minute)
+	reg.Upsert(registry.Node{
+		NodeID: "n1", ListenAddr: strings.TrimPrefix(node.URL, "http://"),
+		Services: []registry.Service{{Models: []string{"qwen"}, Healthy: true}},
+	})
+	h := New(reg)
+	got := make(chan stats.Request, 1)
+	h.Record = func(r stats.Request) { got <- r }
+	mux := http.NewServeMux()
+	h.Register(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	resp, err := http.Post(srv.URL+"/api/chat", "application/json", strings.NewReader(`{"model":"qwen","stream":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), `"content":"hel"`) || !strings.Contains(string(body), `"done":true`) {
+		t.Fatalf("stream = %s", body)
+	}
+	select {
+	case r := <-got:
+		if r.Node != "n1" || r.Model != "qwen" || r.Status != http.StatusOK || r.Path != "/api/chat" {
+			t.Fatalf("row = %+v", r)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no row was recorded")
 	}
 }

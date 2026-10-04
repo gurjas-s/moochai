@@ -23,6 +23,7 @@ import (
 	"mooch-serv/internal/ollama"
 	"mooch-serv/internal/registry"
 	"mooch-serv/internal/router"
+	"mooch-serv/internal/stats"
 	"mooch-serv/internal/tui"
 )
 
@@ -113,10 +114,22 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 		slog.Warn("central does not listen on a Tailscale IP, so other machines cannot join")
 	}
 
+	store := openStats(ctx)
+	defer store.Close()
+	apiHandler, routes, ollamaHandler := api.New(reg, f), router.New(reg, f), ollama.New(reg)
+	if store != nil {
+		apiHandler.Heartbeat = store.Heartbeat
+		routes.Record = store.Record
+		ollamaHandler.Record = store.Record
+		reg.SetLoad(store.Load)
+		go store.RefreshLoad(ctx)
+	}
+
 	mux := http.NewServeMux()
-	api.New(reg, f).Register(mux)
-	router.New(reg, f).Register(mux)
-	ollama.New(reg).Register(mux)
+	apiHandler.Register(mux)
+	routes.Register(mux)
+	ollamaHandler.Register(mux)
+	store.Register(mux)
 	app.Register(mux)
 	join.New(binDir).Register(mux)
 	go expireNodesLoop(ctx, reg, f, ttl/3)
@@ -144,6 +157,25 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 	}
 	slog.Info("central stopped")
 	return nil
+}
+
+// openStats connects to the analytics database at MOOCH_DB_URL. Without the variable, or when the
+// connection fails, it returns nil and central runs without analytics and with round-robin routing.
+func openStats(ctx context.Context) *stats.Store {
+	url := os.Getenv("MOOCH_DB_URL")
+	if url == "" {
+		slog.Info("analytics off: MOOCH_DB_URL is not set")
+		return nil
+	}
+	openCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	store, err := stats.Open(openCtx, url)
+	if err != nil {
+		slog.Warn("analytics off: cannot open the database", "error", err)
+		return nil
+	}
+	slog.Info("analytics on")
+	return store
 }
 
 func setLogOutput(w io.Writer, level slog.Level) {

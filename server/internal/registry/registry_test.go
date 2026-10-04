@@ -43,3 +43,24 @@ func TestLookupRotatesAndModelsDedupe(t *testing.T) {
 		t.Fatalf("models = %v", m)
 	}
 }
+
+func TestLookupPrefersLowestLoad(t *testing.T) {
+	r := New(time.Minute)
+	r.Upsert(node("a", "qwen", true))
+	r.Upsert(node("b", "qwen", true))
+	r.Upsert(node("c", "qwen", true))
+	load := map[string]float64{"a": 500, "b": 0, "c": 0}
+	r.SetLoad(func(n Node) float64 { return load[n.NodeID] })
+	seen := map[string]bool{}
+	for range 4 {
+		n, _ := r.Lookup("qwen")
+		seen[n.NodeID] = true
+	}
+	if seen["a"] || !seen["b"] || !seen["c"] {
+		t.Fatalf("lookup used %v, want only b and c in rotation", seen)
+	}
+	load["b"], load["c"] = 900, 900
+	if n, _ := r.Lookup("qwen"); n.NodeID != "a" {
+		t.Fatalf("got %q, want a with the lowest load", n.NodeID)
+	}
+}

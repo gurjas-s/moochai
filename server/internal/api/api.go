@@ -21,6 +21,8 @@ type Handler struct {
 	log   *slog.Logger
 	feed  *feed.Feed
 	start time.Time
+	// Heartbeat gets each accepted register or heartbeat. Nil records nothing.
+	Heartbeat func(registry.Node)
 }
 
 // New returns the control-plane handler. A nil feed prints no events.
@@ -51,6 +53,9 @@ func (h *Handler) handleUpsert(w http.ResponseWriter, r *http.Request) {
 		h.feed.Joined(n)
 	} else {
 		h.log.Debug("node heartbeat", "node_id", n.NodeID)
+	}
+	if h.Heartbeat != nil {
+		h.Heartbeat(n)
 	}
 	respond.JSON(w, map[string]string{"status": "ok"})
 }

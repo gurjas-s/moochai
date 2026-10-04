@@ -12,6 +12,7 @@ import (
 
 	"mooch-serv/internal/feed"
 	"mooch-serv/internal/registry"
+	"mooch-serv/internal/stats"
 )
 
 type testEnv struct {
@@ -198,5 +199,36 @@ func TestForwardPrintsFeed(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("feed misses %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestForwardRecordsRequest(t *testing.T) {
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"hi"}}],"usage":{"prompt_tokens":3,"completion_tokens":4}}`)
+	}))
+	t.Cleanup(fake.Close)
+	reg := registry.New(time.Minute)
+	reg.Upsert(registry.Node{NodeID: "n1", Name: "gpu-box", ListenAddr: strings.TrimPrefix(fake.URL, "http://"),
+		Services: []registry.Service{{Models: []string{"qwen"}, Healthy: true}}})
+	h := New(reg, nil)
+	got := make(chan stats.Request, 1)
+	h.Record = func(r stats.Request) { got <- r } // runs after the response goes out
+	mux := http.NewServeMux()
+	h.Register(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	if code, _ := post(t, srv.URL+"/v1/chat/completions", `{"model":"qwen"}`); code != http.StatusOK {
+		t.Fatalf("status %d", code)
+	}
+	var r stats.Request
+	select {
+	case r = <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no row was recorded")
+	}
+	if r.Requester != "127.0.0.1" || r.Node != "gpu-box" || r.Model != "qwen" || r.Path != "/v1/chat/completions" ||
+		r.Status != http.StatusOK || r.BytesOut == 0 || r.PromptTokens == nil || *r.CompletionTokens != 4 {
+		t.Fatalf("row = %+v", r)
 	}
 }

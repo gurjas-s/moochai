@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mooch.ai Analytics</title>
+<style>
+/* Central serves this page on the tailnet. It loads nothing from the internet. */
+:root {
+  --bg: #f5f6f8; --surface: #ffffff; --text: #1a1f27; --muted: #5d6675; --line: #d9dee6;
+  --give: #1f7a5a; --take: #b5462b; --accent: #2d5bd3;
+  --s1: #2d5bd3; --s2: #1f7a5a; --s3: #b5462b; --s4: #8a5cc2; --s5: #b98a12; --s6: #2a8fa3;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12161c; --surface: #1a2029; --text: #e4e8ee; --muted: #9aa4b2; --line: #2c3440;
+    --give: #4cc497; --take: #f08466; --accent: #7fa2f5;
+    --s1: #7fa2f5; --s2: #4cc497; --s3: #f08466; --s4: #b994ea; --s5: #e2bb4f; --s6: #5cc3d6;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); }
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; display: grid; gap: 20px; }
+header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+h1 { margin: 0; font-size: 22px; }
+h2 { margin: 0 0 12px; font-size: 15px; }
+.sub { color: var(--muted); margin: 2px 0 0; }
+.tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 3px; }
+.tabs button { border: 0; background: none; color: var(--muted); font: 600 13px var(--sans); padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+.tabs button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+.tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.kpi b { display: block; font: 600 24px var(--mono); font-variant-numeric: tabular-nums; }
+.kpi span { color: var(--muted); font-size: 12px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 7px 8px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+td.name { font-weight: 600; }
+.bal { width: 180px; }
+.balbar { position: relative; height: 10px; background: var(--bg); border-radius: 5px; }
+.balbar i { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+.balbar::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+.give { color: var(--give); } .take { color: var(--take); }
+ol.rank { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+ol.rank li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+ol.rank li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ol.rank li span:last-child { font-family: var(--mono); }
+svg text { fill: var(--muted); font: 11px var(--sans); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.empty, .error { color: var(--muted); padding: 12px 0; }
+.error { color: var(--take); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Mooch.ai Analytics</h1>
+      <p class="sub">Who gives compute, who takes it, and how balanced the cluster is. Work is the time that a node spent on requests.</p>
+    </div>
+    <div class="tabs" role="group" aria-label="Time window">
+      <button type="button" data-w="1h">1 h</button>
+      <button type="button" data-w="24h" aria-pressed="true">24 h</button>
+      <button type="button" data-w="7d">7 d</button>
+      <button type="button" data-w="30d">30 d</button>
+    </div>
+  </header>
+
+  <p id="error" class="error" hidden></p>
+
+  <section class="kpis" aria-label="Totals">
+    <div class="kpi"><b id="k-req">–</b><span>requests served</span></div>
+    <div class="kpi"><b id="k-work">–</b><span>work served</span></div>
+    <div class="kpi"><b id="k-tok">–</b><span>tokens reported</span></div>
+    <div class="kpi"><b id="k-fair">–</b><span>fairness of work across givers (100 = equal)</span></div>
+  </section>
+
+  <section class="grid2">
+    <div class="panel"><h2>Top givers <span class="give">(work served)</span></h2><ol class="rank" id="givers"></ol></div>
+    <div class="panel"><h2>Top takers <span class="take">(work used)</span></h2><ol class="rank" id="takers"></ol></div>
+  </section>
+
+  <section class="panel">
+    <h2>Give and take</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Participant</th><th>Served</th><th>Work served</th><th>Used</th><th>Work used</th><th>Balance</th><th class="bal">Taker ← → Giver</th><th>OK</th><th>p50</th><th>Uptime</th></tr></thead>
+        <tbody id="nodes"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Work served over time</h2>
+    <div class="scroll"><svg id="chart" viewBox="0 0 960 240" role="img" aria-label="Work served per node over time"></svg></div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Models</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Model</th><th>Requests</th><th>Work</th><th>Tokens</th><th>Nodes that served it</th></tr></thead>
+        <tbody id="models"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const series = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6"].map((v) => `var(${v})`);
+let current = "24h";
+
+function el(tag, attrs = {}, ...kids) {
+  const node = tag === "svg" || attrs.svg ? document.createElementNS("http://www.w3.org/2000/svg", tag) : document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) if (k !== "svg") node.setAttribute(k, v);
+  for (const kid of kids) node.append(kid);
+  return node;
+}
+const svg = (tag, attrs) => el(tag, { ...attrs, svg: true });
+
+function dur(s) {
+  if (s < 60) return s.toFixed(1) + " s";
+  if (s < 3600) return (s / 60).toFixed(1) + " min";
+  return (s / 3600).toFixed(1) + " h";
+}
+const num = (n) => n.toLocaleString();
+function signed(s) { return (s > 0 ? "+" : s < 0 ? "−" : "") + dur(Math.abs(s)); }
+
+// fairness is Jain's index over the work of each giver: 100 means all givers did the same work.
+function fairness(nodes) {
+  const xs = nodes.map((n) => n.served_s).filter((x) => x > 0);
+  if (xs.length < 2) return null;
+  const sum = xs.reduce((a, b) => a + b, 0), sq = xs.reduce((a, b) => a + b * b, 0);
+  return Math.round((sum * sum) / (xs.length * sq) * 100);
+}
+
+function rank(list, items, value) {
+  list.replaceChildren();
+  if (!items.length) { list.append(el("li", { class: "empty" }, "No data in this window.")); return; }
+  for (const it of items.slice(0, 5)) list.append(el("li", {}, el("span", {}, it.name), el("span", {}, value(it))));
+}
+
+function renderSummary(s) {
+  $("k-req").textContent = num(s.requests);
+  $("k-work").textContent = dur(s.compute_s);
+  $("k-tok").textContent = num(s.tokens);
+  const f = fairness(s.nodes);
+  $("k-fair").textContent = f === null ? "–" : f;
+
+  rank($("givers"), [...s.nodes].filter((n) => n.served_s > 0).sort((a, b) => b.served_s - a.served_s), (n) => dur(n.served_s));
+  rank($("takers"), [...s.nodes].filter((n) => n.used_s > 0).sort((a, b) => b.used_s - a.used_s), (n) => dur(n.used_s));
+
+  const body = $("nodes");
+  body.replaceChildren();
+  if (!s.nodes.length) {
+    body.append(el("tr", {}, el("td", { colspan: "10", class: "empty" }, "No requests in this window. Send a request to central to start.")));
+    return;
+  }
+  const maxAbs = Math.max(...s.nodes.map((n) => Math.abs(n.balance_s)), 1);
+  for (const n of s.nodes) {
+    const w = (Math.abs(n.balance_s) / maxAbs) * 50;
+    const bar = el("i");
+    bar.style.cssText = n.balance_s >= 0
+      ? `left:50%;width:${w}%;background:var(--give)`
+      : `right:50%;width:${w}%;background:var(--take)`;
+    const cls = n.balance_s > 0 ? "give" : n.balance_s < 0 ? "take" : "";
+    body.append(el("tr", {},
+      el("td", { class: "name" }, n.name),
+      el("td", {}, num(n.served)), el("td", {}, dur(n.served_s)),
+      el("td", {}, num(n.used)), el("td", {}, dur(n.used_s)),
+      el("td", { class: cls }, signed(n.balance_s)),
+      el("td", { class: "bal" }, el("div", { class: "balbar" }, bar)),
+      el("td", {}, n.served ? n.ok_pct + "%" : "–"),
+      el("td", {}, n.p50_ms ? num(n.p50_ms) + " ms" : "–"),
+      el("td", {}, n.uptime_min ? n.uptime_pct + "%" : "–")));
+  }
+}
+
+function renderChart(t) {
+  const chart = $("chart"), legend = $("legend");
+  chart.replaceChildren(); legend.replaceChildren();
+  if (!t.points.length) {
+    chart.append(Object.assign(svg("text", { x: 480, y: 120, "text-anchor": "middle" }), { textContent: "No requests in this window." }));
+    return;
+  }
+  const nodes = [...new Set(t.points.map((p) => p.node))].sort();
+  const color = (n) => series[nodes.indexOf(n) % series.length];
+  const buckets = [...new Set(t.points.map((p) => p.time))].sort();
+  const stack = buckets.map((b) => t.points.filter((p) => p.time === b));
+  const max = Math.max(...stack.map((ps) => ps.reduce((a, p) => a + p.compute_s, 0)), 0.1);
+  const L = 56, R = 950, T = 12, B = 210, bw = Math.max(2, (R - L) / buckets.length - 2);
+  for (const f of [0, 0.5, 1]) {
+    const y = B - f * (B - T);
+    chart.append(svg("line", { x1: L, x2: R, y1: y, y2: y, stroke: "var(--line)" }));
+    chart.append(Object.assign(svg("text", { x: L - 6, y: y + 4, "text-anchor": "end" }), { textContent: dur(max * f) }));
+  }
+  buckets.forEach((b, i) => {
+    let y = B;
+    const x = L + i * ((R - L) / buckets.length) + 1;
+    for (const p of stack[i]) {
+      const h = (p.compute_s / max) * (B - T);
+      y -= h;
+      const r = svg("rect", { x, y, width: bw, height: Math.max(h, 0.5), fill: color(p.node) });
+      r.append(Object.assign(svg("title", {}), { textContent: `${p.node} · ${new Date(p.time).toLocaleString()} · ${dur(p.compute_s)}, ${p.requests} requests` }));
+      chart.append(r);
+    }
+  });
+  const fmt = t.bucket_s >= 86400 ? { month: "short", day: "numeric" } : { hour: "2-digit", minute: "2-digit" };
+  for (const i of [0, Math.floor(buckets.length / 2), buckets.length - 1]) {
+    const x = L + (i + 0.5) * ((R - L) / buckets.length);
+    chart.append(Object.assign(svg("text", { x, y: B + 18, "text-anchor": "middle" }), { textContent: new Date(buckets[i]).toLocaleString([], fmt) }));
+  }
+  for (const n of nodes) {
+    const sw = el("i"); sw.style.background = color(n);
+    legend.append(el("span", {}, sw, n));
+  }
+}
+
+function renderModels(m) {
+  const body = $("models");
+  body.replaceChildren();
+  if (!m.models.length) { body.append(el("tr", {}, el("td", { colspan: "5", class: "empty" }, "No models used in this window."))); return; }
+  for (const x of m.models) {
+    body.append(el("tr", {}, el("td", { class: "name" }, x.model), el("td", {}, num(x.requests)),
+      el("td", {}, dur(x.compute_s)), el("td", {}, num(x.tokens)), el("td", {}, num(x.nodes))));
+  }
+}
+
+async function getJSON(path) {
+  const res = await fetch(`${path}?window=${current}`);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error?.message || res.statusText);
+  return body;
+}
+
+async function load() {
+  try {
+    const [s, t, m] = await Promise.all([getJSON("/api/analytics/summary"), getJSON("/api/analytics/timeseries"), getJSON("/api/analytics/models")]);
+    $("error").hidden = true;
+    renderSummary(s); renderChart(t); renderModels(m);
+  } catch (e) {
+    $("error").textContent = "Cannot load analytics: " + e.message;
+    $("error").hidden = false;
+  }
+}
+
+for (const b of document.querySelectorAll(".tabs button")) {
+  b.addEventListener("click", () => {
+    current = b.dataset.w;
+    for (const o of document.querySelectorAll(".tabs button")) o.setAttribute("aria-pressed", String(o === b));
+    load();
+  });
+}
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>
