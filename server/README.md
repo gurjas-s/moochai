@@ -23,19 +23,27 @@ The examples below use `C=http://127.0.0.1:8080`.
 
 | Method | Path | Use |
 |--------|------|-----|
-| GET | `/healthz` | Status, node count, uptime |
-| GET | `/api/nodes` | All live nodes |
-| POST | `/api/nodes/register` | Node register |
+| GET | `/healthz` | Status, node count, uptime (open) |
+| POST | `/api/users` | Self-register user, returns `user_id` + `api_key` (open) |
+| GET | `/api/me` | My user, groups, node count (Bearer) |
+| POST | `/api/groups` | Create group (Bearer, caller = owner) |
+| GET | `/api/groups` | Groups I belong to (Bearer, UI sidebar) |
+| GET | `/api/groups/{id}` | Group detail + members (Bearer, members only) |
+| POST | `/api/groups/{id}/members` | Add member `{"user_id"}` (Bearer, owner only) |
+| DELETE | `/api/groups/{id}/members/{user_id}` | Remove member or leave (Bearer) |
+| GET | `/api/nodes` | Live nodes I can access (Bearer, private) |
+| POST | `/api/nodes/register` | Node register (Bearer sets owner, `groups[]` shares) |
 | POST | `/api/nodes/heartbeat` | Node heartbeat (same payload as register) |
-| GET | `/v1/models` | All models on live nodes |
-| POST | `/v1/chat/completions` | Forward to a node |
-| POST | `/v1/completions` | Forward to a node |
-| POST | `/v1/embeddings` | Forward to a node |
-| POST | `/v1/images/generations` | Forward to a node |
+| GET | `/v1/models` | Models I can access (Bearer, private) |
+| POST | `/v1/chat/completions` | Forward to an accessible node (Bearer) |
+| POST | `/v1/completions` | Forward to an accessible node (Bearer) |
+| POST | `/v1/embeddings` | Forward to an accessible node (Bearer) |
+| POST | `/v1/images/generations` | Forward to an accessible node (Bearer) |
 | GET | `/join` | Join page (HTML) |
 | GET | `/join.sh` | Node install script |
 | GET | `/join/peerai-node.yaml` | Default node config |
 | GET | `/join/bin/{os}-{arch}` | Node binary |
+| GET | `/app` | Test UI for users, groups, nodes, models |
 
 ### Health and nodes
 

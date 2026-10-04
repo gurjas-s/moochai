@@ -24,6 +24,8 @@ import (
 	"time"
 
 	"peerai-serv/internal/api"
+	"peerai-serv/internal/app"
+	"peerai-serv/internal/auth"
 	"peerai-serv/internal/join"
 	"peerai-serv/internal/registry"
 	"peerai-serv/internal/router"
@@ -58,9 +60,11 @@ func run(addr, binDir string, ttl time.Duration, log *slog.Logger) error {
 	}
 
 	reg := registry.New(ttl)
+	authStore := auth.New()
 	mux := http.NewServeMux()
-	api.New(reg, log).Register(mux)
-	router.New(reg, log).Register(mux)
+	api.New(reg, authStore, log).Register(mux)
+	router.New(reg, authStore, log).Register(mux)
+	app.New(log).Register(mux)
 	join.New(binDir, log).Register(mux)
 
 	ln, err := net.Listen("tcp", listen)

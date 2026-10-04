@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PeerAI Test UI</title>
+<style>
+:root {
+  --bg: #ffffff;
+  --bg-muted: #f4f4f2;
+  --border: #dcdcd8;
+  --text: #1c1c1a;
+  --text-muted: #6b6b66;
+  --accent: #1f4e79;
+  --accent-hover: #183d5f;
+  --mono-bg: #f4f4f2;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1b1b19;
+    --bg-muted: #242422;
+    --border: #3a3a36;
+    --text: #e8e8e4;
+    --text-muted: #a3a39c;
+    --accent: #7aa7d1;
+    --accent-hover: #93b9da;
+    --mono-bg: #242422;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 4rem;
+  color: var(--text);
+  background: var(--bg);
+}
+header { border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1.5rem; }
+header h1 { font-size: 1.25rem; font-weight: 650; margin: 0 0 0.25rem; letter-spacing: -0.01em; }
+header p { margin: 0; color: var(--text-muted); font-size: 0.875rem; }
+section {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem 1.25rem;
+  margin: 0 0 1rem;
+  background: var(--bg);
+}
+section h2 { font-size: 0.8125rem; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin: 0 0 0.75rem; }
+section p { margin: 0 0 0.75rem; color: var(--text-muted); font-size: 0.875rem; }
+.row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+label { font-size: 0.8125rem; font-weight: 600; min-width: 7rem; }
+input[type=text] {
+  font: inherit;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  width: 20rem;
+  max-width: 100%;
+}
+input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+input.key { width: 28rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8125rem; }
+button {
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 550;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-muted);
+  color: var(--text);
+  cursor: pointer;
+}
+button:hover { border-color: var(--text-muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { background: var(--accent-hover); }
+@media (prefers-color-scheme: dark) { button.primary { color: #111; } }
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  background: var(--mono-bg);
+  border: 1px solid var(--border);
+  padding: 0.75rem;
+  overflow-x: auto;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0.5rem 0 0;
+  min-height: 1rem;
+}
+pre:empty { display: none; }
+hr.sep { border: 0; border-top: 1px solid var(--border); margin: 0.75rem 0; }
+.hint { font-size: 0.8125rem; color: var(--text-muted); }
+</style>
+</head>
+<body>
+<header>
+<h1>PeerAI Test UI</h1>
+<p>Test users, groups, nodes, and models. Data lives in central memory only.</p>
+</header>
+
+<section>
+<h2>1. API key</h2>
+<p>Paste an existing API key, or register a new user. The key is stored in this browser only.</p>
+<div class="row">
+<label for="key">API key</label>
+<input id="key" class="key" type="text" placeholder="peerai_..." autocomplete="off" spellcheck="false">
+<button onclick="saveKey()">Save</button>
+<button onclick="clearKey()">Clear</button>
+</div>
+<div class="row">
+<label for="regName">New user</label>
+<input id="regName" type="text" placeholder="user name" autocomplete="off">
+<button class="primary" onclick="register()">Register user</button>
+</div>
+<pre id="regOut"></pre>
+</section>
+
+<section>
+<h2>2. Identity</h2>
+<p>Show the user, groups, and accessible node count for the saved key. Calls GET /api/me.</p>
+<div class="row"><button onclick="showMe()">GET /api/me</button></div>
+<pre id="meOut"></pre>
+</section>
+
+<section>
+<h2>3. Groups</h2>
+<p>Groups restrict which models each member can access. Only members see a group. Only the owner adds members.</p>
+<div class="row">
+<button onclick="listGroups()">List my groups</button>
+<span class="hint">Calls GET /api/groups</span>
+</div>
+<div class="row">
+<label for="grpName">New group</label>
+<input id="grpName" type="text" placeholder="group name" autocomplete="off">
+<button class="primary" onclick="createGroup()">Create group</button>
+</div>
+<pre id="grpOut"></pre>
+<hr class="sep">
+<div class="row">
+<label for="grpID">Group ID</label>
+<input id="grpID" type="text" placeholder="group_id" autocomplete="off" spellcheck="false">
+<button onclick="showGroup()">Show group</button>
+</div>
+<div class="row">
+<label for="memberID">Member</label>
+<input id="memberID" type="text" placeholder="user_id to add" autocomplete="off" spellcheck="false">
+<button onclick="addMember()">Add member</button>
+<button onclick="leave()">Leave group</button>
+</div>
+<pre id="grpDetail"></pre>
+</section>
+
+<section>
+<h2>4. Nodes and models</h2>
+<p>Lists only nodes and models shared with the saved key. Calls GET /api/nodes and GET /v1/models.</p>
+<div class="row">
+<button onclick="listNodes()">List nodes I can access</button>
+<button onclick="listModels()">List models I can access</button>
+</div>
+<pre id="nodesOut"></pre>
+</section>
+
+<section>
+<h2>5. Chat completion test</h2>
+<p>Sends one chat request with the saved key. The model must be shared with the caller.</p>
+<div class="row">
+<label for="chatModel">Model</label>
+<input id="chatModel" type="text" placeholder="model id" autocomplete="off" spellcheck="false">
+</div>
+<div class="row">
+<label for="chatMsg">Message</label>
+<input id="chatMsg" type="text" placeholder="message" autocomplete="off">
+<button class="primary" onclick="chat()">Send chat</button>
+</div>
+<pre id="chatOut"></pre>
+</section>
+
+<script>
+function key() { return (document.getElementById('key').value || '').trim(); }
+function saveKey() { localStorage.setItem('peerai_key', key()); out('regOut', 'Saved.'); }
+function clearKey() { document.getElementById('key').value = ''; localStorage.removeItem('peerai_key'); }
+function auth() { return {'Authorization': 'Bearer ' + key()}; }
+function out(id, v) { document.getElementById(id).textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2); }
+async function call(id, path, opts) {
+  try {
+    const r = await fetch(path, opts);
+    const t = await r.text();
+    out(id, r.status + ' ' + t);
+    return JSON.parse(t);
+  } catch (e) { out(id, 'error: ' + e); return null; }
+}
+async function register() {
+  const name = document.getElementById('regName').value.trim();
+  const d = await call('regOut', '/api/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
+  if (d && d.api_key) { document.getElementById('key').value = d.api_key; localStorage.setItem('peerai_key', d.api_key); }
+}
+async function showMe() { await call('meOut', '/api/me', {headers: auth()}); }
+async function listGroups() { await call('grpOut', '/api/groups', {headers: auth()}); }
+async function createGroup() {
+  const name = document.getElementById('grpName').value.trim();
+  const d = await call('grpOut', '/api/groups', {method: 'POST', headers: Object.assign({'Content-Type': 'application/json'}, auth()), body: JSON.stringify({name})});
+  if (d && d.group_id) document.getElementById('grpID').value = d.group_id;
+}
+async function showGroup() {
+  const id = document.getElementById('grpID').value.trim();
+  await call('grpDetail', '/api/groups/' + encodeURIComponent(id), {headers: auth()});
+}
+async function addMember() {
+  const id = document.getElementById('grpID').value.trim();
+  const user_id = document.getElementById('memberID').value.trim();
+  await call('grpDetail', '/api/groups/' + encodeURIComponent(id) + '/members', {method: 'POST', headers: Object.assign({'Content-Type': 'application/json'}, auth()), body: JSON.stringify({user_id})});
+}
+async function leave() {
+  const id = document.getElementById('grpID').value.trim();
+  const me = await (await fetch('/api/me', {headers: auth()})).json();
+  await call('grpDetail', '/api/groups/' + encodeURIComponent(id) + '/members/' + encodeURIComponent(me.user_id), {method: 'DELETE', headers: auth()});
+}
+async function listNodes() { await call('nodesOut', '/api/nodes', {headers: auth()}); }
+async function listModels() { await call('nodesOut', '/v1/models', {headers: auth()}); }
+async function chat() {
+  const model = document.getElementById('chatModel').value.trim();
+  const content = document.getElementById('chatMsg').value || 'Hello';
+  await call('chatOut', '/v1/chat/completions', {method: 'POST', headers: Object.assign({'Content-Type': 'application/json'}, auth()), body: JSON.stringify({model, messages: [{role: 'user', content}]})});
+}
+(function init() { document.getElementById('key').value = localStorage.getItem('peerai_key') || ''; })();
+</script>
+</body>
+</html>
