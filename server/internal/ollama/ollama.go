@@ -27,6 +27,8 @@ type Handler struct {
 	client *http.Client
 	// Record gets one row for each chat request that goes to a node. Nil records nothing.
 	Record func(stats.Request)
+	// Feed shows each chat request on the console. Nil shows nothing.
+	Feed *feed.Feed
 }
 
 func New(reg *registry.Registry) *Handler {
@@ -120,18 +122,24 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		ollamaError(w, http.StatusNotFound, fmt.Sprintf("model %q not found", req.Model))
 		return
 	}
-	var tail stats.Tail // the end of the node response, for the token usage
-	if h.Record != nil {
-		start, status := time.Now(), http.StatusOK
-		defer func() {
-			prompt, completion := stats.Usage(tail.Bytes())
-			h.Record(stats.Request{Time: start, Requester: router.Requester(h.reg, r), Node: feed.Name(node),
-				Model: req.Model, Path: r.URL.Path, Status: status, Duration: time.Since(start),
-				PromptTokens: prompt, CompletionTokens: completion})
-		}()
-		w = statusWriter{w, &status}
-	}
+	var tail stats.Tail   // the end of the node response, for the token usage
+	var head bytes.Buffer // the start of the node response, for the feed preview
+	from, to := router.Requester(h.reg, r), feed.Name(node)
+	start, status := time.Now(), http.StatusOK
 	body, err := json.Marshal(openAIRequest(req))
+	h.Feed.Route(from, req.Model, to)
+	h.Feed.Request(from, to, r.Method, r.URL.Path, feed.Preview(body))
+	defer func() {
+		d := time.Since(start)
+		h.Feed.Response(to, from, status, d, feed.ResponsePreview(head.Bytes()))
+		if h.Record != nil {
+			prompt, completion := stats.Usage(tail.Bytes())
+			h.Record(stats.Request{Time: start, Requester: from, Node: to,
+				Model: req.Model, Path: r.URL.Path, Status: status, Duration: d,
+				PromptTokens: prompt, CompletionTokens: completion})
+		}
+	}()
+	w = statusWriter{w, &status}
 	if err != nil {
 		ollamaError(w, http.StatusBadRequest, err.Error())
 		return
@@ -149,7 +157,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
-	nodeBody := io.TeeReader(resp.Body, &tail)
+	nodeBody := io.TeeReader(resp.Body, io.MultiWriter(&tail, headWriter{&head}))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, nodeBody)
@@ -259,6 +267,19 @@ func (s statusWriter) WriteHeader(code int) {
 }
 
 func (s statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+// maxPreviewBody limits the response bytes that the feed keeps for its preview.
+const maxPreviewBody = 64 << 10
+
+// headWriter keeps the first maxPreviewBody bytes and drops the rest.
+type headWriter struct{ buf *bytes.Buffer }
+
+func (h headWriter) Write(b []byte) (int, error) {
+	if room := maxPreviewBody - h.buf.Len(); room > 0 {
+		h.buf.Write(b[:min(len(b), room)])
+	}
+	return len(b), nil
+}
 
 func (h *Handler) model(id string) (registry.Model, bool) {
 	for _, model := range h.reg.Models() {

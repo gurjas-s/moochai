@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"mooch-serv/internal/api"
-	"mooch-serv/internal/app"
 	"mooch-serv/internal/feed"
 	"mooch-serv/internal/join"
 	"mooch-serv/internal/ollama"
@@ -144,6 +143,7 @@ func run(addr, analyticsAddr, binDir string, ttl time.Duration, mode outputMode,
 	store := openStats(ctx)
 	defer store.Close()
 	apiHandler, routes, ollamaHandler := api.New(reg, f), router.New(reg, f), ollama.New(reg)
+	ollamaHandler.Feed = f
 	if store != nil {
 		apiHandler.Heartbeat = store.Heartbeat
 		routes.Record = store.Record
@@ -156,11 +156,9 @@ func run(addr, analyticsAddr, binDir string, ttl time.Duration, mode outputMode,
 	apiHandler.Register(mux)
 	routes.Register(mux)
 	ollamaHandler.Register(mux)
-	// The analytics page and its API listen only on analyticsAddr. The tailnet gets only the leaderboard.
+	// The analytics page and its API listen only on analyticsAddr. The tailnet cannot open them.
 	analyticsMux := http.NewServeMux()
 	store.Register(analyticsMux)
-	mux.Handle("GET /leaderboard.json", analyticsMux)
-	app.Register(mux)
 	join.New(binDir).Register(mux)
 	go expireNodesLoop(ctx, reg, f, ttl/3)
 

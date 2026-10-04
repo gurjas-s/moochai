@@ -114,14 +114,14 @@ func TestLogHandlerWritesFriendlyLines(t *testing.T) {
 
 func TestLogHandlerFramesRequests(t *testing.T) {
 	var buf bytes.Buffer
-	logger := slog.New(NewLogHandler(&buf, slog.LevelInfo))
+	logger := slog.New(NewLogHandler(&buf, slog.LevelInfo)).With("node_name", "gpu-box")
 	logger.Info("proxy forward", "model", "qwen2.5", "service", "local-qwen", "prompt", "hi")
 	logger.Info("request", "method", "POST", "path", "/v1/chat/completions", "status", 200)
 	logger.Info("proxy response", "service", "local-qwen", "status", 502, "duration", 1234*time.Millisecond, "answer", "")
 	logger.Info("request", "method", "GET", "path", "/v1/models", "status", 200)
 	out := ansi.Strip(buf.String())
-	for _, want := range []string{" #1 ", "MODEL    [ central → local-qwen ] qwen2.5",
-		"REQUEST  [ central → local-qwen ]" + cut + `"hi"`, "RESPONSE [ local-qwen → central ] 502" + cut + "(no text)" + cut + "in 1.234s",
+	for _, want := range []string{" #1 ", "MODEL    [ central → gpu-box ] qwen2.5",
+		"REQUEST  [ gpu-box → local-qwen ]" + cut + `"hi"`, "RESPONSE [ local-qwen → gpu-box ] 502" + cut + "(no text)" + cut + "in 1.234s",
 		"GET /v1/models"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output misses %q:\n%s", want, out)
@@ -146,7 +146,7 @@ func TestRedrawFitsFramesToWidth(t *testing.T) {
 			t.Errorf("width %d, want 50: %q", w, ansi.Strip(got))
 		}
 	}
-	if got, _ := redraw(lines[5], 50); !strings.Contains(ansi.Strip(got), "REQUEST  [ central → s ] \"xx") ||
+	if got, _ := redraw(lines[5], 50); !strings.Contains(ansi.Strip(got), "REQUEST  [ node → s ] \"xx") ||
 		!strings.Contains(ansi.Strip(got), "…") {
 		t.Errorf("long text line is not cut: %q", ansi.Strip(got))
 	}

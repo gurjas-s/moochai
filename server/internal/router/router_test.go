@@ -191,9 +191,9 @@ func TestForwardPrintsFeed(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"── #1 ──",
-		"MODEL    [ 127.0.0.1 → n1 ] qwen\n",
-		`│ REQUEST  [ 127.0.0.1 → n1 ] "hello there"`,
-		`│ RESPONSE [ n1 → 127.0.0.1 ] 418 "general kenobi" in `,
+		"MODEL    [ computer → n1 ] qwen\n",
+		`│ REQUEST  [ computer → n1 ] "hello there"`,
+		`│ RESPONSE [ n1 → computer ] 418 "general kenobi" in `,
 		`"general kenobi"`,
 	} {
 		if !strings.Contains(got, want) {
@@ -227,7 +227,7 @@ func TestForwardRecordsRequest(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("no row was recorded")
 	}
-	if r.Requester != "127.0.0.1" || r.Node != "gpu-box" || r.Model != "qwen" || r.Path != "/v1/chat/completions" ||
+	if r.Requester != UnknownRequester || r.Node != "gpu-box" || r.Model != "qwen" || r.Path != "/v1/chat/completions" ||
 		r.Status != http.StatusOK || r.BytesOut == 0 || r.PromptTokens == nil || *r.CompletionTokens != 4 {
 		t.Fatalf("row = %+v", r)
 	}

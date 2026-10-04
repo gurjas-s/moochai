@@ -56,7 +56,6 @@ func (s *Store) Register(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("GET /api/analytics/summary", s.handle(s.summary))
 	mux.HandleFunc("GET /api/analytics/models", s.handle(s.models))
-	mux.HandleFunc("GET /leaderboard.json", s.handleLeaderboard)
 }
 
 type query func(ctx context.Context, name string, w window) (any, error)
@@ -95,7 +94,6 @@ type NodeUsage struct {
 	P50MS         float64 `json:"p50_ms"`
 	UptimeMin     int64   `json:"uptime_min"`
 	UptimePct     float64 `json:"uptime_pct"`
-	Models        int64   `json:"models"`
 }
 
 type Summary struct {
@@ -127,13 +125,13 @@ func (s *Store) summary(ctx context.Context, name string, w window) (any, error)
 	}
 	// The hourly aggregate gives the totals. Its first bucket can start up to one hour before since.
 	rows, _ := s.pool.Query(ctx, `
-		SELECT node, sum(requests), sum(ok), sum(tokens), count(DISTINCT model)
+		SELECT node, sum(requests), sum(ok), sum(tokens)
 		FROM usage_hourly WHERE bucket >= time_bucket(INTERVAL '1 hour', $1::timestamptz) GROUP BY node`, since)
 	var node string
-	var n, ok, tokens, models int64
-	if _, err := pgx.ForEachRow(rows, []any{&node, &n, &ok, &tokens, &models}, func() error {
+	var n, ok, tokens int64
+	if _, err := pgx.ForEachRow(rows, []any{&node, &n, &ok, &tokens}, func() error {
 		u := row(node)
-		u.Served, u.TokensServed, u.Models = n, tokens, models
+		u.Served, u.TokensServed = n, tokens
 		if n > 0 {
 			u.OKPct = round(float64(ok) * 100 / float64(n))
 		}
@@ -224,44 +222,6 @@ func (s *Store) models(ctx context.Context, name string, w window) (any, error) 
 		return nil
 	})
 	return map[string]any{"window": name, "models": out}, err
-}
-
-// handleLeaderboard serves the last 24 hours in the shape of frontend/public/leaderboard.example.json.
-func (s *Store) handleLeaderboard(w http.ResponseWriter, r *http.Request) {
-	if s == nil || s.pool == nil {
-		respond.Error(w, http.StatusServiceUnavailable, "analytics are off: set MOOCH_DB_URL on central")
-		return
-	}
-	v, err := s.summary(r.Context(), "24h", windows["24h"])
-	if err != nil {
-		s.log.Warn("analytics query failed", "error", err)
-		respond.Error(w, http.StatusServiceUnavailable, "analytics database is unavailable")
-		return
-	}
-	respond.JSON(w, Leaderboard(v.(Summary)))
-}
-
-type LeaderboardEntry struct {
-	Alias  string  `json:"alias"`
-	Models int64   `json:"models"`
-	Served int64   `json:"served"`
-	OKPct  float64 `json:"ok_pct"`
-	P50MS  float64 `json:"p50_ms"`
-	Uptime string  `json:"uptime"`
-}
-
-// Leaderboard ranks the participants that served requests by the number of requests served.
-func Leaderboard(sum Summary) map[string]any {
-	entries := []LeaderboardEntry{}
-	for _, u := range sum.Nodes {
-		if u.Served == 0 {
-			continue
-		}
-		entries = append(entries, LeaderboardEntry{u.Name, u.Models, u.Served, u.OKPct, u.P50MS,
-			(time.Duration(u.UptimeMin) * time.Minute).String()})
-	}
-	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Served > entries[j].Served })
-	return map[string]any{"updated_at": sum.UpdatedAt, "entries": entries}
 }
 
 func round(v float64) float64 { return math.Round(v*10) / 10 }

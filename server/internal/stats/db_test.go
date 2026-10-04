@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -103,14 +102,11 @@ func TestDBSummaryAndBalance(t *testing.T) {
 
 	mux := http.NewServeMux()
 	s.Register(mux)
-	for _, path := range []string{"/api/analytics/summary?window=7d", "/leaderboard.json", "/api/analytics/models?window=30d"} {
+	for _, path := range []string{"/api/analytics/summary?window=7d", "/api/analytics/models?window=30d"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET %s = %d %s", path, rec.Code, rec.Body)
-		}
-		if path == "/leaderboard.json" && !strings.Contains(rec.Body.String(), `"alias":"gpu-a","models":1,"served":4`) {
-			t.Fatalf("leaderboard = %s", rec.Body)
 		}
 	}
 }

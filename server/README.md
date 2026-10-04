@@ -58,7 +58,6 @@ live nodes and models. Central relies on the tailnet to limit who can connect.
 | `internal/router` | OpenAI routes: `/v1/models` and forwarding by `model` |
 | `internal/registry` | In-memory node list: upsert, expiry, model lookup |
 | `internal/join` | Join page, install script, default node config, node binaries |
-| `internal/app` | Embedded test UI (`page.html`) at `/app` |
 | `internal/feed` | Event lines: join, leave, route, request, response |
 | `internal/tui` | Terminal dashboard: logo, NODES and MODELS boxes, event console |
 | `internal/respond` | JSON responses and the OpenAI error envelope |
@@ -120,7 +119,6 @@ make db-down      # stop the database; the data stays in the mooch-db volume
 ```
 
 Open `http://127.0.0.1:3000/analytics` on the central machine. The tailnet cannot open the analytics page or its API.
-The tailnet gets only `GET /leaderboard.json` on port 8080.
 
 To use another database, set `MOOCH_DB_URL` before you start central.
 
@@ -183,12 +181,10 @@ Without a database, central uses rotation only.
 | GET | `/join.sh` | Node install script |
 | GET | `/join/mooch-node.yaml` | Default node config |
 | GET | `/join/bin/{os}-{arch}` | Node binary |
-| GET | `/app` | Test UI for nodes and models |
 | GET | `/analytics` | Analytics page: token share, balance, live rate, models. Updates every 0.5 s. |
 | GET | `/analytics/chart.js` | Chart.js 4.5.1 (MIT), embedded in central for the page |
-| GET | `/api/analytics/summary?window=` | Give and take of each participant. `window` is `1h`, `24h`, `7d`, or `30d`. |
+| GET | `/api/analytics/summary?window=` | Give and take of each participant. A caller that is not a node has the name `computer`. `window` is `1h`, `24h`, `7d`, or `30d`. |
 | GET | `/api/analytics/models?window=` | Use of each model |
-| GET | `/leaderboard.json` | Last 24 hours in the format of `frontend/public/leaderboard.example.json` |
 
 Zed can use the Ollama-compatible surface with automatic model discovery:
 
