@@ -1,13 +1,13 @@
 # Frontend — mooch.tech
 
-Static site. No Go code. No secrets.
+Static leaderboard. No Go code. No secrets.
 
 ## Files
 
-- `index.html` — setup guide, live network, leaderboard.
+- `index.html` — description, network counts, leaderboard.
 - `app.js` — loads snapshots. Sends no data.
 - `styles.css` — styles.
-- `public/status.example.json` — sample live snapshot.
+- `public/status.example.json` — sample counts.
 - `public/leaderboard.example.json` — sample board.
 
 ## Live data contract
