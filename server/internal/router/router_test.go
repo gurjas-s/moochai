@@ -183,15 +183,15 @@ func TestForwardPrintsFeed(t *testing.T) {
 		io.WriteString(w, `{"choices":[{"message":{"content":"general kenobi"}}]}`)
 	}, feed.New(&out))
 	post(t, env.srv.URL+"/v1/chat/completions", `{"model":"qwen","messages":[{"role":"user","content":"hello there"}]}`)
-	// The feed prints RESP after the client has the body.
-	for i := 0; i < 100 && !strings.Contains(out.String(), "RESP"); i++ {
+	// The feed closes the block after the client has the body.
+	for i := 0; i < 100 && !strings.Contains(out.String(), "╰"); i++ {
 		time.Sleep(10 * time.Millisecond)
 	}
 	got := out.String()
 	for _, want := range []string{
-		"ROUTE #1 127.0.0.1 asks for qwen → n1 · served by: n1",
-		`REQ   #1 [ 127.0.0.1 → n1 ] "hello there" POST /v1/chat/completions`,
-		`RESP  #1 [ n1 → 127.0.0.1 ] "general kenobi" 418 in `,
+		"╭─ #1 127.0.0.1 asks for qwen → n1 · served by: n1",
+		`│ REQ   [ 127.0.0.1 → n1 ] "hello there" POST /v1/chat/completions · #1`,
+		`│ RESP  [ n1 → 127.0.0.1 ] "general kenobi" 418 in `,
 		`"general kenobi"`,
 	} {
 		if !strings.Contains(got, want) {

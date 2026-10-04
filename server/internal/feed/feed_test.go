@@ -21,9 +21,10 @@ func TestFeedLines(t *testing.T) {
 	f.Response(id, "gpu-box", "laptop", 200, 1234*time.Millisecond, "")
 	want := `09:05:00  JOIN  gpu-box 100.64.0.7 · models: a, b
 09:05:00  LEAVE n2 no heartbeat
-09:05:00  ROUTE #1 laptop asks for a → gpu-box · served by: gpu-box
-09:05:00  REQ   #1 [ laptop → gpu-box ] "hi" POST /v1/chat/completions
-09:05:00  RESP  #1 [ gpu-box → laptop ] (no text) 200 in 1.234s
+09:05:00  ╭─ #1 laptop asks for a → gpu-box · served by: gpu-box
+09:05:00  │ REQ   [ laptop → gpu-box ] "hi" POST /v1/chat/completions · #1
+09:05:00  │ RESP  [ gpu-box → laptop ] (no text) 200 in 1.234s · #1
+          ╰────────────────────────────────────────────────────────────
 `
 	if out.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)

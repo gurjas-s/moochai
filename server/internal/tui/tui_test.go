@@ -67,4 +67,14 @@ func TestWrap(t *testing.T) {
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
+
+	// A line in a request block keeps the rail on its continuation lines.
+	got = wrap("12:00:00  │ REQ   "+strings.Repeat("x", 20), 30)
+	want = []string{
+		"12:00:00  │ REQ   xxxxxxxxxxxx",
+		"          │       xxxxxxxx",
+	}
+	if ansi.Strip(strings.Join(got, "\n")) != strings.Join(want, "\n") {
+		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
 }

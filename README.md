@@ -115,17 +115,19 @@ Central shows a terminal dashboard when it runs in a terminal:
 ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
 │ CONSOLE                                                                                      │
 │ 12:00:01  JOIN  gpu-box 100.64.0.7 · models: qwen2.5:7b, llama3.1:8b                         │
-│ 12:00:09  ROUTE #1 laptop asks for qwen2.5:7b → gpu-box · served by: gpu-box                 │
-│ 12:00:09  REQ   #1 [ laptop → gpu-box ] "Hello" POST /v1/chat/completions                    │
-│ 12:00:10  RESP  #1 [ gpu-box → laptop ] "Hello! How can I help you today?" 200 in 812ms      │
+│ 12:00:09  ╭─ #1 laptop asks for qwen2.5:7b → gpu-box · served by: gpu-box                    │
+│ 12:00:09  │ REQ   [ laptop → gpu-box ] "Hello" POST /v1/chat/completions · #1                  │
+│ 12:00:10  │ RESP  [ gpu-box → laptop ] "Hello! How can I help you?" 200 in 812ms · #1          │
+│           ╰────────────────────────────────────────────────────────────                       │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 - **NODES** shows the live nodes. A yellow dot shows that a node has not sent a heartbeat for 20 seconds.
 - **MODELS** shows each available model and the nodes that serve the model, separated by commas.
 - **CONSOLE** shows the events: nodes that join or leave, routes, requests, and responses.
+  A grey frame encloses each request and its response.
   REQ and RESP lines show the direction of each message, for example `[ laptop → gpu-box ]`.
-  The number after each tag (`#1`) connects the lines of one request.
+  The number at the end of a line (`#1`) connects the lines of one request when two requests overlap.
 
 Use these keys in the dashboard:
 

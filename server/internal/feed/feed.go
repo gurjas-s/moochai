@@ -30,6 +30,9 @@ const (
 
 const previewLen = 120
 
+// blockWidth is the length of the line that closes a request block.
+const blockWidth = 60
+
 // Feed writes one line for each cluster event. A nil Feed writes nothing.
 type Feed struct {
 	mu    sync.Mutex
@@ -105,7 +108,7 @@ func (f *Feed) Left(n registry.Node) {
 	f.event(red, "LEAVE", "%s %s", f.paint(cyan, Name(n)), f.paint(dim, "no heartbeat"))
 }
 
-// Route prints the model selection and the node that gets the request.
+// Route opens a request block with the model selection and the node that gets the request.
 // Route returns a request number for Request and Response.
 func (f *Feed) Route(from, model string, available []string, to string) int {
 	if f == nil {
@@ -115,24 +118,27 @@ func (f *Feed) Route(from, model string, available []string, to string) int {
 	f.reqID++
 	id := f.reqID
 	f.mu.Unlock()
-	f.event(yellow, "ROUTE", "%s %s asks for %s %s %s %s", f.id(id), f.paint(cyan, from), f.paint(magenta, model),
-		f.paint(dim, "→"), f.paint(cyan, to), f.paint(dim, "· served by: "+strings.Join(available, ", ")))
+	f.printf("%s  %s %s %s asks for %s %s %s %s\n", f.paint(dim, f.now().Format("15:04:05")), f.paint(grey, "╭─"),
+		f.paint(bold+yellow, fmt.Sprintf("#%d", id)), f.paint(cyan, from), f.paint(magenta, model),
+		f.paint(dim, "→"), f.paint(cyan, to), f.paint(grey, "· served by: "+strings.Join(available, ", ")))
 	return id
 }
 
-// Request prints the direction, the prompt, and the path of the forwarded request.
+// Request prints the direction, the prompt, and the path of the forwarded request inside its block.
+// The request number at the end connects the lines when two blocks overlap.
 func (f *Feed) Request(id int, from, to, path, preview string) {
-	f.event(blue, "REQ", "%s %s %s %s", f.id(id), f.chat(blue, from, to), f.text(preview), f.paint(grey, path))
+	f.inBlock(blue, "REQ", "%s %s %s", f.chat(blue, from, to), f.text(preview), f.paint(grey, fmt.Sprintf("%s · #%d", path, id)))
 }
 
-// Response prints the direction, the answer, the status, and the duration.
+// Response prints the direction, the answer, the status, and the duration, and then closes the block.
 func (f *Feed) Response(id int, from, to string, status int, d time.Duration, preview string) {
 	code := green
 	if status >= 400 {
 		code = red
 	}
-	f.event(code, "RESP", "%s %s %s %s", f.id(id), f.chat(code, from, to), f.text(preview),
-		f.paint(grey, fmt.Sprintf("%d in %s", status, d.Round(time.Millisecond))))
+	f.inBlock(code, "RESP", "%s %s %s", f.chat(code, from, to), f.text(preview),
+		f.paint(grey, fmt.Sprintf("%d in %s · #%d", status, d.Round(time.Millisecond), id)))
+	f.printf("%s%s\n", strings.Repeat(" ", 10), f.paint(grey, "╰"+strings.Repeat("─", blockWidth)))
 }
 
 // chat returns the direction of a message, for example "[ laptop → gpu-box ]".
@@ -149,9 +155,9 @@ func (f *Feed) text(s string) string {
 	return fmt.Sprintf("%q", s)
 }
 
-// Unreachable prints a line when central cannot connect to a node.
+// Unreachable prints a line in the request block when central cannot connect to a node.
 func (f *Feed) Unreachable(addr string) {
-	f.event(red, "ERROR", "%s", f.paint(red, "node at "+addr+" is unreachable"))
+	f.inBlock(red, "ERROR", "%s", f.paint(red, "node at "+addr+" is unreachable"))
 }
 
 // event prints one line: the time, a coloured tag, and the message.
@@ -163,7 +169,15 @@ func (f *Feed) event(code, tag, format string, args ...any) {
 	f.printf("%s  %s %s\n", f.paint(dim, f.now().Format("15:04:05")), f.paint(bold+code, fmt.Sprintf("%-5s", tag)), msg)
 }
 
-func (f *Feed) id(id int) string { return f.paint(dim, fmt.Sprintf("#%d", id)) }
+// inBlock prints one line inside a request block. A grey rail on the left encloses the lines of the block.
+func (f *Feed) inBlock(code, tag, format string, args ...any) {
+	if f == nil {
+		return
+	}
+	msg := strings.TrimRight(fmt.Sprintf(format, args...), " ")
+	f.printf("%s  %s %s %s\n", f.paint(dim, f.now().Format("15:04:05")), f.paint(grey, "│"),
+		f.paint(bold+code, fmt.Sprintf("%-5s", tag)), msg)
+}
 
 func (f *Feed) printf(format string, args ...any) {
 	if f == nil {
