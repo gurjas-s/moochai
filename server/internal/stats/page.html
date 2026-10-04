@@ -49,6 +49,10 @@ th:first-child, td:first-child { text-align: left; }
 th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
 tr:last-child td { border-bottom: 0; }
 td.name { font-weight: 600; }
+.bal { width: 200px; }
+.balbar { position: relative; height: 10px; background: var(--bg); border-radius: 5px; }
+.balbar i { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+.balbar::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
 .give { color: var(--give); } .take { color: var(--take); }
 ol.rank { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 ol.rank li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
@@ -109,8 +113,8 @@ ol.rank li span:last-child { font-family: var(--mono); }
     <div class="scroll">
       <table>
         <thead><tr>
-          <th>Participant</th><th>Requests served</th><th>Tokens served</th><th>Requests sent</th><th>Tokens used</th>
-          <th>Balance</th><th>Success</th><th title="Median time to answer a request that this node served">Median reply</th><th>Uptime</th>
+          <th>Participant</th><th>Tokens served</th><th>Tokens used</th>
+          <th>Balance</th><th class="bal">Taker ← → Giver</th><th>Success</th><th title="Median time to answer a request that this node served">Median reply</th><th>Uptime</th>
         </tr></thead>
         <tbody id="nodes"></tbody>
       </table>
@@ -224,15 +228,22 @@ function render(s, m) {
   const body = $("nodes");
   body.replaceChildren();
   if (!s.nodes.length) {
-    body.append(el("tr", {}, el("td", { colspan: "9", class: "empty" }, "No requests in this window. Send a request to central to start.")));
+    body.append(el("tr", {}, el("td", { colspan: "8", class: "empty" }, "No requests in this window. Send a request to central to start.")));
   }
+  // Each bar grows from the center line: right for a net giver, left for a net taker.
+  const maxAbs = Math.max(...s.nodes.map((n) => Math.abs(n.balance_tokens)), 1);
   for (const n of s.nodes) {
     const cls = n.balance_tokens > 0 ? "give" : n.balance_tokens < 0 ? "take" : "";
+    const bar = el("i");
+    const w = (Math.abs(n.balance_tokens) / maxAbs) * 50;
+    bar.style.cssText = n.balance_tokens >= 0
+      ? `left:50%;width:${w}%;background:var(--give)`
+      : `right:50%;width:${w}%;background:var(--take)`;
     body.append(el("tr", {},
       el("td", { class: "name" }, n.name),
-      el("td", {}, num(n.served)), el("td", {}, num(n.tokens_served)),
-      el("td", {}, num(n.used)), el("td", {}, num(n.tokens_used)),
+      el("td", {}, num(n.tokens_served)), el("td", {}, num(n.tokens_used)),
       el("td", { class: cls }, signed(n.balance_tokens)),
+      el("td", { class: "bal" }, el("div", { class: "balbar", title: `${num(n.balance_tokens)} tokens` }, bar)),
       el("td", {}, n.served ? n.ok_pct + "%" : "–"),
       el("td", {}, n.p50_ms ? ms(n.p50_ms) : "–"),
       el("td", {}, n.uptime_min ? n.uptime_pct + "%" : "–")));
