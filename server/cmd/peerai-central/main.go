@@ -20,6 +20,7 @@ import (
 	"peerai-serv/internal/app"
 	"peerai-serv/internal/feed"
 	"peerai-serv/internal/join"
+	"peerai-serv/internal/ollama"
 	"peerai-serv/internal/registry"
 	"peerai-serv/internal/router"
 	"peerai-serv/internal/tui"
@@ -111,6 +112,7 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 	mux := http.NewServeMux()
 	api.New(reg, f).Register(mux)
 	router.New(reg, f).Register(mux)
+	ollama.New(reg).Register(mux)
 	app.Register(mux)
 	join.New(binDir).Register(mux)
 	go expireNodesLoop(ctx, reg, f, ttl/3)
