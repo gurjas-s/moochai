@@ -45,10 +45,32 @@ func TestForwardStreamsBody(t *testing.T) {
 		if r.URL.Path != "/v1/chat/completions" || !strings.Contains(string(got), `"qwen"`) {
 			t.Errorf("node got %s %s", r.URL.Path, got)
 		}
+		if r.Header.Get("X-Test-Auth") != "forwarded-value" {
+			t.Errorf("node test header = %q, want forwarded header", r.Header.Get("X-Test-Auth"))
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		io.WriteString(w, "data: one\n\ndata: [DONE]\n\n")
+		io.WriteString(w, "data: one\n\n")
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		io.WriteString(w, "data: [DONE]\n\n")
 	})
-	code, body := post(t, srv.URL+"/v1/chat/completions", `{"model":"qwen","stream":true}`)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"qwen","stream":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Test-Auth", "forwarded-value")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, body := resp.StatusCode, string(bodyBytes)
 	if code != 200 || body != "data: one\n\ndata: [DONE]\n\n" {
 		t.Fatalf("status %d body %q", code, body)
 	}
