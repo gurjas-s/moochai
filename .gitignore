@@ -43,3 +43,4 @@ bin/
 central/dist/
 
 mooch-node.yaml
+.DS_Store
