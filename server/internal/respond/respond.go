@@ -7,10 +7,8 @@ import (
 )
 
 var errorTypes = map[int]string{
-	http.StatusUnauthorized: "authentication_error",
-	http.StatusForbidden:    "permission_denied",
-	http.StatusNotFound:     "model_not_found",
-	http.StatusBadGateway:   "service_unavailable",
+	http.StatusNotFound:   "model_not_found",
+	http.StatusBadGateway: "service_unavailable",
 }
 
 type apiError struct {

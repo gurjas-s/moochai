@@ -17,7 +17,7 @@ func TestPage(t *testing.T) {
 			t.Fatalf("%s: status %d", path, rec.Code)
 		}
 		body := rec.Body.String()
-		for _, want := range []string{"PeerAI Test UI", "/api/me", "/api/groups", "/v1/models"} {
+		for _, want := range []string{"PeerAI Test UI", "/api/nodes", "/v1/models"} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s: page does not contain %q", path, want)
 			}

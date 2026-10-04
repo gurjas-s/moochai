@@ -1,4 +1,4 @@
-// Package api serves the control-plane routes: users, groups, and node register/heartbeat.
+// Package api serves the control-plane routes: node register/heartbeat and node list.
 package api
 
 import (
@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"peerai-serv/internal/auth"
+	"peerai-serv/internal/feed"
 	"peerai-serv/internal/registry"
 	"peerai-serv/internal/respond"
 )
@@ -18,139 +18,25 @@ const maxControlBody = 1 << 20
 
 type Handler struct {
 	reg   *registry.Registry
-	auth  *auth.Store
 	log   *slog.Logger
+	feed  *feed.Feed
 	start time.Time
 }
 
-func New(reg *registry.Registry, authStore *auth.Store) *Handler {
-	return &Handler{reg: reg, auth: authStore, log: slog.With("component", "api"), start: time.Now()}
+// New returns the control-plane handler. A nil feed prints no events.
+func New(reg *registry.Registry, f *feed.Feed) *Handler {
+	return &Handler{reg: reg, log: slog.With("component", "api"), feed: f, start: time.Now()}
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/users", h.handleCreateUser)
-	mux.HandleFunc("GET /api/me", h.handleMe)
-	mux.HandleFunc("POST /api/groups", h.handleCreateGroup)
-	mux.HandleFunc("GET /api/groups", h.handleListGroups)
-	mux.HandleFunc("GET /api/groups/{id}", h.handleGetGroup)
-	mux.HandleFunc("POST /api/groups/{id}/members", h.handleAddMember)
-	mux.HandleFunc("DELETE /api/groups/{id}/members/{user_id}", h.handleRemoveMember)
 	mux.HandleFunc("POST /api/nodes/register", h.handleUpsert)
 	mux.HandleFunc("POST /api/nodes/heartbeat", h.handleUpsert)
 	mux.HandleFunc("GET /api/nodes", h.handleNodes)
 	mux.HandleFunc("GET /healthz", h.handleHealthz)
 }
 
-func (h *Handler) handleCreateUser(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name string `json:"name"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	u, err := h.auth.CreateUser(req.Name)
-	if err != nil {
-		respond.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h.log.Info("user created", "user_id", u.ID, "name", u.Name)
-	w.WriteHeader(http.StatusCreated)
-	respond.JSON(w, map[string]string{"user_id": u.ID, "api_key": u.APIKey, "name": u.Name})
-}
-
-func (h *Handler) handleMe(w http.ResponseWriter, r *http.Request) {
-	u, ok := h.auth.RequireUser(w, r)
-	if !ok {
-		return
-	}
-	nodes := h.reg.Nodes(u.ID, h.auth.GroupIDsFor(u.ID))
-	respond.JSON(w, map[string]any{
-		"user_id":          u.ID,
-		"name":             u.Name,
-		"groups":           h.auth.ListGroups(u.ID),
-		"accessible_nodes": len(nodes),
-	})
-}
-
-func (h *Handler) handleCreateGroup(w http.ResponseWriter, r *http.Request) {
-	u, ok := h.auth.RequireUser(w, r)
-	if !ok {
-		return
-	}
-	var req struct {
-		Name string `json:"name"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	g, err := h.auth.CreateGroup(u, req.Name)
-	if err != nil {
-		respond.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	h.log.Info("group created", "group_id", g.GroupID, "owner_id", u.ID)
-	w.WriteHeader(http.StatusCreated)
-	respond.JSON(w, g)
-}
-
-func (h *Handler) handleListGroups(w http.ResponseWriter, r *http.Request) {
-	u, ok := h.auth.RequireUser(w, r)
-	if !ok {
-		return
-	}
-	respond.JSON(w, h.auth.ListGroups(u.ID))
-}
-
-func (h *Handler) handleGetGroup(w http.ResponseWriter, r *http.Request) {
-	u, ok := h.auth.RequireUser(w, r)
-	if !ok {
-		return
-	}
-	g, found := h.auth.GetGroup(u.ID, r.PathValue("id"))
-	if !found {
-		respond.Error(w, http.StatusNotFound, "group not found")
-		return
-	}
-	respond.JSON(w, g)
-}
-
-func (h *Handler) handleAddMember(w http.ResponseWriter, r *http.Request) {
-	caller, ok := h.auth.RequireUser(w, r)
-	if !ok {
-		return
-	}
-	var req struct {
-		UserID string `json:"user_id"`
-	}
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	g, err := h.auth.AddMember(caller, r.PathValue("id"), req.UserID)
-	if err != nil {
-		writeGroupError(w, err)
-		return
-	}
-	respond.JSON(w, g)
-}
-
-func (h *Handler) handleRemoveMember(w http.ResponseWriter, r *http.Request) {
-	caller, ok := h.auth.RequireUser(w, r)
-	if !ok {
-		return
-	}
-	if err := h.auth.RemoveMember(caller, r.PathValue("id"), r.PathValue("user_id")); err != nil {
-		writeGroupError(w, err)
-		return
-	}
-	respond.JSON(w, map[string]string{"status": "ok"})
-}
-
 // Register and heartbeat store the same payload, so a heartbeat after a central restart registers again.
 func (h *Handler) handleUpsert(w http.ResponseWriter, r *http.Request) {
-	u, ok := h.auth.RequireUser(w, r)
-	if !ok {
-		return
-	}
 	var n registry.Node
 	if !decodeJSON(w, r, &n) {
 		return
@@ -160,17 +46,11 @@ func (h *Handler) handleUpsert(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	for _, g := range n.GroupIDs {
-		if !h.auth.IsMember(g, u.ID) {
-			respond.Error(w, http.StatusBadRequest, "caller is not a member of group "+g)
-			return
-		}
-	}
-	n.OwnerID = u.ID
 	if h.reg.Upsert(n) {
-		h.log.Info("node joined", "node_id", n.NodeID, "owner_id", u.ID, "listen_addr", n.ListenAddr)
+		h.log.Info("node joined", "node_id", n.NodeID, "listen_addr", n.ListenAddr)
+		h.feed.Joined(n)
 	} else {
-		h.log.Debug("node heartbeat", "node_id", n.NodeID, "owner_id", u.ID)
+		h.log.Debug("node heartbeat", "node_id", n.NodeID)
 	}
 	respond.JSON(w, map[string]string{"status": "ok"})
 }
@@ -195,11 +75,7 @@ func validateNode(n registry.Node, remoteAddr string) error {
 }
 
 func (h *Handler) handleNodes(w http.ResponseWriter, r *http.Request) {
-	u, ok := h.auth.RequireUser(w, r)
-	if !ok {
-		return
-	}
-	respond.JSON(w, h.reg.Nodes(u.ID, h.auth.GroupIDsFor(u.ID)))
+	respond.JSON(w, h.reg.Nodes())
 }
 
 func (h *Handler) handleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -216,15 +92,4 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
-}
-
-func writeGroupError(w http.ResponseWriter, err error) {
-	status := http.StatusBadRequest
-	switch {
-	case errors.Is(err, auth.ErrGroupNotFound), errors.Is(err, auth.ErrNotMember):
-		status = http.StatusNotFound
-	case errors.Is(err, auth.ErrOwnerOnlyAdd), errors.Is(err, auth.ErrOwnerOnlyRemove):
-		status = http.StatusForbidden
-	}
-	respond.Error(w, status, err.Error())
 }

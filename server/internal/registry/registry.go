@@ -28,8 +28,6 @@ type Node struct {
 	ListenAddr  string    `json:"listen_addr"`
 	Version     string    `json:"version"`
 	Services    []Service `json:"services"`
-	OwnerID     string    `json:"owner_id,omitempty"`
-	GroupIDs    []string  `json:"groups,omitempty"`
 	LastSeen    time.Time `json:"last_seen"`
 }
 
@@ -61,16 +59,11 @@ func (reg *Registry) Upsert(node Node) bool {
 	return !known
 }
 
-// Lookup picks an accessible node that serves model, rotating between matches.
-func (reg *Registry) Lookup(model, callerID string, callerGroups map[string]bool) (Node, bool) {
+// Lookup picks a live node that serves model, rotating between matches.
+func (reg *Registry) Lookup(model string) (Node, bool) {
 	reg.nodesLock.Lock()
 	defer reg.nodesLock.Unlock()
-	var matches []Node
-	for _, node := range reg.accessibleLocked(callerID, callerGroups) {
-		if slices.Contains(node.healthyModels(), model) {
-			matches = append(matches, node)
-		}
-	}
+	matches := reg.servingLocked(model)
 	if len(matches) == 0 {
 		return Node{}, false
 	}
@@ -78,13 +71,32 @@ func (reg *Registry) Lookup(model, callerID string, callerGroups map[string]bool
 	return matches[reg.lookupCount%len(matches)], true
 }
 
-// Models lists the models the caller can use, sorted by ID.
-func (reg *Registry) Models(callerID string, callerGroups map[string]bool) []Model {
+// Serving lists the live nodes that serve model, sorted by ID.
+func (reg *Registry) Serving(model string) []Node {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	return reg.servingLocked(model)
+}
+
+// NodeByIP returns the live node with the Tailscale IP ip.
+func (reg *Registry) NodeByIP(ip string) (Node, bool) {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	for _, node := range reg.nodes {
+		if node.TailscaleIP == ip && !reg.expired(node) {
+			return node, true
+		}
+	}
+	return Node{}, false
+}
+
+// Models lists the models of the live nodes, sorted by ID.
+func (reg *Registry) Models() []Model {
 	reg.nodesLock.Lock()
 	defer reg.nodesLock.Unlock()
 	var result []Model
 	seen := map[string]bool{}
-	for _, node := range reg.accessibleLocked(callerID, callerGroups) {
+	for _, node := range reg.liveLocked() {
 		for _, modelID := range node.healthyModels() {
 			if !seen[modelID] {
 				seen[modelID] = true
@@ -96,22 +108,22 @@ func (reg *Registry) Models(callerID string, callerGroups map[string]bool) []Mod
 	return result
 }
 
-// Nodes lists the live nodes the caller can access, sorted by ID.
-func (reg *Registry) Nodes(callerID string, callerGroups map[string]bool) []Node {
+// Nodes lists the live nodes, sorted by ID.
+func (reg *Registry) Nodes() []Node {
 	reg.nodesLock.Lock()
 	defer reg.nodesLock.Unlock()
-	return reg.accessibleLocked(callerID, callerGroups)
+	return reg.liveLocked()
 }
 
-// Sweep deletes expired nodes and returns their IDs.
-func (reg *Registry) Sweep() []string {
+// Sweep deletes expired nodes and returns them.
+func (reg *Registry) Sweep() []Node {
 	reg.nodesLock.Lock()
 	defer reg.nodesLock.Unlock()
-	var removed []string
+	var removed []Node
 	for id, node := range reg.nodes {
 		if reg.expired(node) {
 			delete(reg.nodes, id)
-			removed = append(removed, id)
+			removed = append(removed, node)
 		}
 	}
 	return removed
@@ -124,11 +136,11 @@ func (reg *Registry) Len() int {
 	return len(reg.nodes)
 }
 
-// accessibleLocked returns live nodes the caller can access, sorted by ID; caller holds nodesLock.
-func (reg *Registry) accessibleLocked(callerID string, callerGroups map[string]bool) []Node {
+// liveLocked returns the live nodes, sorted by ID; caller holds nodesLock.
+func (reg *Registry) liveLocked() []Node {
 	result := make([]Node, 0, len(reg.nodes))
 	for _, node := range reg.nodes {
-		if !reg.expired(node) && canAccess(node, callerID, callerGroups) {
+		if !reg.expired(node) {
 			result = append(result, node)
 		}
 	}
@@ -136,21 +148,19 @@ func (reg *Registry) accessibleLocked(callerID string, callerGroups map[string]b
 	return result
 }
 
-// expired reports whether node missed heartbeats for longer than nodeTTL.
-func (reg *Registry) expired(node Node) bool { return reg.clock().Sub(node.LastSeen) > reg.nodeTTL }
-
-// canAccess reports whether the caller owns node or shares one of its groups.
-func canAccess(node Node, callerID string, callerGroups map[string]bool) bool {
-	if node.OwnerID != "" && node.OwnerID == callerID {
-		return true
-	}
-	for _, groupID := range node.GroupIDs {
-		if callerGroups[groupID] {
-			return true
+// servingLocked returns live nodes that serve model; caller holds nodesLock.
+func (reg *Registry) servingLocked(model string) []Node {
+	var matches []Node
+	for _, node := range reg.liveLocked() {
+		if slices.Contains(node.healthyModels(), model) {
+			matches = append(matches, node)
 		}
 	}
-	return false
+	return matches
 }
+
+// expired reports whether node missed heartbeats for longer than nodeTTL.
+func (reg *Registry) expired(node Node) bool { return reg.clock().Sub(node.LastSeen) > reg.nodeTTL }
 
 // healthyModels returns the models of the healthy services of node.
 func (node Node) healthyModels() []string {

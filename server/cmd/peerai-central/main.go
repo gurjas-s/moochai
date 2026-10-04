@@ -18,10 +18,11 @@ import (
 
 	"peerai-serv/internal/api"
 	"peerai-serv/internal/app"
-	"peerai-serv/internal/auth"
+	"peerai-serv/internal/feed"
 	"peerai-serv/internal/join"
 	"peerai-serv/internal/registry"
 	"peerai-serv/internal/router"
+	"peerai-serv/internal/tui"
 )
 
 var tailscaleRange = netip.MustParsePrefix("100.64.0.0/10")
@@ -31,65 +32,132 @@ func main() {
 	binDir := flag.String("bin", "dist", "directory with node binaries for /join")
 	ttl := flag.Duration("node-ttl", 45*time.Second, "remove a node after this time without a heartbeat")
 	debug := flag.Bool("debug", false, "log each heartbeat")
+	verbose := flag.Bool("verbose", false, "print plain log lines instead of the coloured feed")
+	plain := flag.Bool("plain", false, "print the coloured feed without the dashboard")
 	flag.Parse()
 
-	level := slog.LevelInfo
+	// The feed replaces the info logs. Warnings and errors still go to the log output.
+	level := slog.LevelWarn
+	if *verbose {
+		level = slog.LevelInfo
+	}
 	if *debug {
 		level = slog.LevelDebug
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+	setLogOutput(os.Stderr, level)
 
-	if err := run(*addr, *binDir, *ttl); err != nil {
+	mode := modeDashboard
+	switch {
+	case *verbose:
+		mode = modeLog
+	case *plain || !isTerminal(os.Stdout):
+		mode = modeFeed
+	}
+	if err := run(*addr, *binDir, *ttl, mode, level); err != nil {
 		slog.Error("central stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, binDir string, ttl time.Duration) error {
+type outputMode int
+
+const (
+	modeDashboard outputMode = iota // full-screen dashboard
+	modeFeed                        // coloured feed lines on stdout
+	modeLog                         // plain slog lines
+)
+
+func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Level) error {
 	listen, tailscaleIP, err := resolveListenAddr(addr)
 	if err != nil {
 		return err
 	}
-
-	reg := registry.New(ttl)
-	authStore := auth.New()
-	mux := http.NewServeMux()
-	api.New(reg, authStore).Register(mux)
-	router.New(reg, authStore).Register(mux)
-	app.Register(mux)
-	join.New(binDir).Register(mux)
-
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return err
 	}
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	slog.Info("central listening", "addr", ln.Addr().String())
-	if tailscaleIP.IsValid() {
-		printJoinInfo(os.Stdout, tailscaleIP, port)
-	} else {
-		slog.Warn("central does not listen on a Tailscale IP, so other machines cannot join")
-	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go expireNodesLoop(ctx, reg, ttl/3)
+
+	reg := registry.New(ttl)
+	var f *feed.Feed
+	var ui *tui.UI
+	switch mode {
+	case modeDashboard:
+		ui = tui.New(ctx, reg, ln.Addr().String(), tailscaleIP.IsValid())
+		f = feed.NewColor(ui)
+		// The dashboard owns the terminal, so warnings go to the console.
+		slog.SetDefault(slog.New(slog.NewTextHandler(consoleLog{ui}, &slog.HandlerOptions{Level: level,
+			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+				if len(groups) == 0 && (a.Key == slog.TimeKey || a.Key == slog.LevelKey) {
+					return slog.Attr{}
+				}
+				return a
+			}})))
+	case modeFeed:
+		f = feed.New(os.Stdout)
+		f.Banner(ln.Addr().String())
+		if tailscaleIP.IsValid() {
+			printJoinInfo(os.Stdout, tailscaleIP, port)
+		}
+	}
+	if !tailscaleIP.IsValid() && ui == nil {
+		slog.Warn("central does not listen on a Tailscale IP, so other machines cannot join")
+	}
+
+	mux := http.NewServeMux()
+	api.New(reg, f).Register(mux)
+	router.New(reg, f).Register(mux)
+	app.Register(mux)
+	join.New(binDir).Register(mux)
+	go expireNodesLoop(ctx, reg, f, ttl/3)
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	served := make(chan error, 1)
 	go func() {
-		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdown)
+		served <- srv.Serve(ln)
+		stop()
 	}()
-	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
+	if ui != nil {
+		// The dashboard reads keys in raw mode, so q and ctrl+c arrive here and not as signals.
+		if err := ui.Run(); err != nil {
+			slog.Error("dashboard stopped", "error", err)
+		}
+		stop()
+		setLogOutput(os.Stderr, level)
+	}
+	<-ctx.Done()
+	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutdown)
+	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	slog.Info("central stopped")
 	return nil
 }
 
-func expireNodesLoop(ctx context.Context, reg *registry.Registry, every time.Duration) {
+func setLogOutput(w io.Writer, level slog.Level) {
+	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: level})))
+}
+
+// consoleLog formats slog lines like feed events in the dashboard console.
+type consoleLog struct{ w io.Writer }
+
+func (c consoleLog) Write(p []byte) (int, error) {
+	fmt.Fprintf(c.w, "\033[2m%s\033[0m  \033[1;33mLOG  \033[0m %s", time.Now().Format("15:04:05"), p)
+	return len(p), nil
+}
+
+func isTerminal(f *os.File) bool {
+	st, err := f.Stat()
+	return err == nil && st.Mode()&os.ModeCharDevice != 0
+}
+
+func expireNodesLoop(ctx context.Context, reg *registry.Registry, f *feed.Feed, every time.Duration) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
@@ -97,8 +165,9 @@ func expireNodesLoop(ctx context.Context, reg *registry.Registry, every time.Dur
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			for _, id := range reg.Sweep() {
-				slog.Info("node expired", "node_id", id)
+			for _, n := range reg.Sweep() {
+				slog.Info("node expired", "node_id", n.NodeID)
+				f.Left(n)
 			}
 		}
 	}
