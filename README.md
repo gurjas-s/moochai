@@ -110,9 +110,11 @@ make run-db    # start TimescaleDB on 127.0.0.1, then start central with analyti
 
 Open `http://<central-tailscale-ip>:8080/analytics` to see these values:
 
-- The participants that give the most work, and the participants that use the most work.
-- The balance of each participant: work served minus work used.
-- The work that each node served over time, and the use of each model.
+- The participants that give the most tokens, and the participants that use the most tokens.
+- The balance of each participant: tokens served minus tokens used.
+- The live request rate and the use of each model. The page updates every half second.
+
+The [`demo/`](demo/README.md) folder has scripts that simulate a cluster of 20 users.
 
 With the database, central sends each request to the node with the least work in the last hour.
 
