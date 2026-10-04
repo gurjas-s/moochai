@@ -1,7 +1,4 @@
-// Package auth keeps users and groups for central.
-// Users self-register and get a long-lived API key.
-// Nodes and tools send the key as Authorization: Bearer.
-// Groups share nodes in private mode.
+// Package auth keeps users, API keys, and groups in memory.
 package auth
 
 import (
@@ -14,33 +11,27 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"peerai-serv/internal/respond"
 )
 
-// User is one registered identity.
+var (
+	ErrGroupNotFound   = errors.New("group not found")
+	ErrNotMember       = errors.New("user is not a member")
+	ErrOwnerOnlyAdd    = errors.New("only the group owner can add members")
+	ErrOwnerOnlyRemove = errors.New("only the group owner can remove other members")
+)
+
 type User struct {
-	ID        string    `json:"user_id"`
-	Name      string    `json:"name"`
-	APIKey    string    `json:"-"`
-	CreatedAt time.Time `json:"created_at"`
+	ID, Name, APIKey string
 }
 
-// Group is one private sharing set.
-type Group struct {
-	ID        string          `json:"group_id"`
-	Name      string          `json:"name"`
-	OwnerID   string          `json:"owner_id"`
-	Members   map[string]bool `json:"-"`
-	CreatedAt time.Time       `json:"created_at"`
-}
-
-// Member is one public group member for UI responses.
 type Member struct {
 	UserID string `json:"user_id"`
 	Name   string `json:"name"`
 }
 
-// GroupView is the JSON shape the UI reads.
-type GroupView struct {
+type Group struct {
 	GroupID   string    `json:"group_id"`
 	Name      string    `json:"name"`
 	OwnerID   string    `json:"owner_id"`
@@ -48,69 +39,56 @@ type GroupView struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Store is safe for concurrent use. Data lives in memory only.
-type Store struct {
-	mu     sync.Mutex
-	users  map[string]User
-	names  map[string]string
-	keys   map[string]string
-	groups map[string]*Group
+type group struct {
+	id        string
+	name      string
+	ownerID   string
+	members   map[string]bool
+	createdAt time.Time
 }
 
-// New returns an empty Store.
+type Store struct {
+	mu      sync.Mutex
+	users   map[string]User
+	names   map[string]bool
+	keyToID map[string]string
+	groups  map[string]*group
+}
+
 func New() *Store {
 	return &Store{
-		users:  map[string]User{},
-		names:  map[string]string{},
-		keys:   map[string]string{},
-		groups: map[string]*Group{},
+		users:   map[string]User{},
+		names:   map[string]bool{},
+		keyToID: map[string]string{},
+		groups:  map[string]*group{},
 	}
 }
 
-// CreateUser adds a user with a fresh API key. Names must be unique.
 func (s *Store) CreateUser(name string) (User, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return User{}, errors.New("name is required")
-	}
-	if len(name) > 64 {
-		return User{}, errors.New("name must be 64 characters or less")
+	name, err := cleanName(name)
+	if err != nil {
+		return User{}, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, taken := s.names[name]; taken {
+	if s.names[name] {
 		return User{}, errors.New("name is already taken")
 	}
-	u := User{
-		ID:        "u_" + hexID(8),
-		Name:      name,
-		APIKey:    "peerai_" + hexID(32),
-		CreatedAt: time.Now(),
-	}
+	u := User{ID: "u_" + randomHex(8), Name: name, APIKey: "peerai_" + randomHex(32)}
 	s.users[u.ID] = u
-	s.names[name] = u.ID
-	s.keys[u.APIKey] = u.ID
+	s.names[name] = true
+	s.keyToID[u.APIKey] = u.ID
 	return u, nil
 }
 
-// GetUser returns a user by ID.
-func (s *Store) GetUser(id string) (User, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	u, ok := s.users[id]
-	return u, ok
-}
-
-// Authenticate returns the user for a Bearer key. It returns false
-// when the header is missing or the key is unknown.
 func (s *Store) Authenticate(r *http.Request) (User, bool) {
-	key := bearer(r)
+	key := bearerToken(r)
 	if key == "" {
 		return User{}, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for stored, id := range s.keys {
+	for stored, id := range s.keyToID {
 		if subtle.ConstantTimeCompare([]byte(stored), []byte(key)) == 1 {
 			u, ok := s.users[id]
 			return u, ok
@@ -119,126 +97,115 @@ func (s *Store) Authenticate(r *http.Request) (User, bool) {
 	return User{}, false
 }
 
-// CreateGroup adds a group. The owner becomes a member.
-func (s *Store) CreateGroup(owner User, name string) (GroupView, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return GroupView{}, errors.New("name is required")
+func (s *Store) RequireUser(w http.ResponseWriter, r *http.Request) (User, bool) {
+	u, ok := s.Authenticate(r)
+	if !ok {
+		respond.Error(w, http.StatusUnauthorized, "missing or invalid API key")
 	}
-	if len(name) > 64 {
-		return GroupView{}, errors.New("name must be 64 characters or less")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	g := &Group{
-		ID:        "g_" + hexID(8),
-		Name:      name,
-		OwnerID:   owner.ID,
-		Members:   map[string]bool{owner.ID: true},
-		CreatedAt: time.Now(),
-	}
-	s.groups[g.ID] = g
-	return s.viewLocked(g), nil
+	return u, ok
 }
 
-// ListGroups returns groups the user belongs to, sorted by ID.
-func (s *Store) ListGroups(userID string) []GroupView {
+func (s *Store) CreateGroup(owner User, name string) (Group, error) {
+	name, err := cleanName(name)
+	if err != nil {
+		return Group{}, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := []GroupView{}
+	g := &group{
+		id:        "g_" + randomHex(8),
+		name:      name,
+		ownerID:   owner.ID,
+		members:   map[string]bool{owner.ID: true},
+		createdAt: time.Now(),
+	}
+	s.groups[g.id] = g
+	return s.toGroupLocked(g), nil
+}
+
+func (s *Store) ListGroups(userID string) []Group {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []Group{}
 	for _, g := range s.groups {
-		if g.Members[userID] {
-			out = append(out, s.viewLocked(g))
+		if g.members[userID] {
+			out = append(out, s.toGroupLocked(g))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].GroupID < out[j].GroupID })
 	return out
 }
 
-// GetGroup returns a group view when the user is a member.
-func (s *Store) GetGroup(callerID, groupID string) (GroupView, bool) {
+func (s *Store) GetGroup(callerID, groupID string) (Group, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	g, ok := s.groups[groupID]
-	if !ok || !g.Members[callerID] {
-		return GroupView{}, false
+	if !ok || !g.members[callerID] {
+		return Group{}, false
 	}
-	return s.viewLocked(g), true
+	return s.toGroupLocked(g), true
 }
 
-// GroupExists reports when a group ID exists.
-func (s *Store) GroupExists(groupID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, ok := s.groups[groupID]
-	return ok
-}
-
-// IsMember reports group membership.
 func (s *Store) IsMember(groupID, userID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	g, ok := s.groups[groupID]
-	return ok && g.Members[userID]
+	return ok && g.members[userID]
 }
 
-// GroupIDsFor returns the set of groups the user belongs to.
 func (s *Store) GroupIDsFor(userID string) map[string]bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := map[string]bool{}
 	for id, g := range s.groups {
-		if g.Members[userID] {
+		if g.members[userID] {
 			out[id] = true
 		}
 	}
 	return out
 }
 
-// AddMember adds a user to a group. Only the owner can add.
-func (s *Store) AddMember(caller User, groupID, userID string) (GroupView, error) {
+func (s *Store) AddMember(caller User, groupID, userID string) (Group, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	g, ok := s.groups[groupID]
 	if !ok {
-		return GroupView{}, errors.New("group not found")
+		return Group{}, ErrGroupNotFound
 	}
-	if g.OwnerID != caller.ID {
-		return GroupView{}, errors.New("only the group owner can add members")
+	if g.ownerID != caller.ID {
+		return Group{}, ErrOwnerOnlyAdd
 	}
 	if _, ok := s.users[userID]; !ok {
-		return GroupView{}, errors.New("user not found")
+		return Group{}, errors.New("user not found")
 	}
-	g.Members[userID] = true
-	return s.viewLocked(g), nil
+	g.members[userID] = true
+	return s.toGroupLocked(g), nil
 }
 
-// RemoveMember removes a user from a group. The owner can remove
-// any member except self. A member can remove self to leave.
-// The owner cannot leave the group.
+// The owner can remove any member except self. A member can remove only self.
 func (s *Store) RemoveMember(caller User, groupID, targetID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	g, ok := s.groups[groupID]
 	if !ok {
-		return errors.New("group not found")
+		return ErrGroupNotFound
 	}
-	if !g.Members[targetID] {
-		return errors.New("user is not a member")
+	if !g.members[targetID] {
+		return ErrNotMember
 	}
-	if caller.ID != g.OwnerID && caller.ID != targetID {
-		return errors.New("only the group owner can remove other members")
+	if caller.ID != g.ownerID && caller.ID != targetID {
+		return ErrOwnerOnlyRemove
 	}
-	if targetID == g.OwnerID {
+	if targetID == g.ownerID {
 		return errors.New("the group owner cannot leave the group")
 	}
-	delete(g.Members, targetID)
+	delete(g.members, targetID)
 	return nil
 }
 
-func (s *Store) viewLocked(g *Group) GroupView {
-	members := make([]Member, 0, len(g.Members))
-	for id := range g.Members {
+func (s *Store) toGroupLocked(g *group) Group {
+	members := make([]Member, 0, len(g.members))
+	for id := range g.members {
 		name := id
 		if u, ok := s.users[id]; ok {
 			name = u.Name
@@ -246,28 +213,35 @@ func (s *Store) viewLocked(g *Group) GroupView {
 		members = append(members, Member{UserID: id, Name: name})
 	}
 	sort.Slice(members, func(i, j int) bool { return members[i].UserID < members[j].UserID })
-	return GroupView{
-		GroupID:   g.ID,
-		Name:      g.Name,
-		OwnerID:   g.OwnerID,
+	return Group{
+		GroupID:   g.id,
+		Name:      g.name,
+		OwnerID:   g.ownerID,
 		Members:   members,
-		CreatedAt: g.CreatedAt,
+		CreatedAt: g.createdAt,
 	}
 }
 
-func bearer(r *http.Request) string {
-	h := r.Header.Get("Authorization")
-	if h == "" {
-		return ""
+func cleanName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("name is required")
 	}
-	parts := strings.SplitN(h, " ", 2)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-		return ""
+	if len(name) > 64 {
+		return "", errors.New("name must be 64 characters or less")
 	}
-	return strings.TrimSpace(parts[1])
+	return name, nil
 }
 
-func hexID(n int) string {
+func bearerToken(r *http.Request) string {
+	scheme, key, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	if !ok || !strings.EqualFold(scheme, "bearer") {
+		return ""
+	}
+	return strings.TrimSpace(key)
+}
+
+func randomHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)

@@ -1,6 +1,4 @@
-// Package router serves the OpenAI-compatible API for tools.
-// It routes each request to a node that serves the requested model.
-// Access is private: the caller sees only owned or group-shared nodes.
+// Package router forwards OpenAI requests to a node that serves the requested model.
 package router
 
 import (
@@ -16,20 +14,19 @@ import (
 	"time"
 
 	"peerai-serv/internal/auth"
-	"peerai-serv/internal/openaierr"
 	"peerai-serv/internal/registry"
+	"peerai-serv/internal/respond"
 )
 
-const maxBody = 32 << 20
+const maxRequestBody = 32 << 20
 
-var routes = []string{
+var forwardPaths = []string{
 	"/v1/chat/completions",
 	"/v1/completions",
 	"/v1/embeddings",
 	"/v1/images/generations",
 }
 
-// Handler forwards OpenAI requests to nodes.
 type Handler struct {
 	reg   *registry.Registry
 	auth  *auth.Store
@@ -37,19 +34,10 @@ type Handler struct {
 	proxy *httputil.ReverseProxy
 }
 
-// New returns a Handler. A nil log means slog.Default.
-func New(reg *registry.Registry, authStore *auth.Store, log *slog.Logger) *Handler {
-	if log == nil {
-		log = slog.Default()
-	}
-	if authStore == nil {
-		authStore = auth.New()
-	}
-	h := &Handler{reg: reg, auth: authStore, log: log.With("component", "router")}
+func New(reg *registry.Registry, authStore *auth.Store) *Handler {
+	h := &Handler{reg: reg, auth: authStore, log: slog.With("component", "router")}
 	h.proxy = &httputil.ReverseProxy{
-		// handleForward sets the target URL before proxying. A Director keeps
-		// that URL and lets ReverseProxy stream the node response to the tool.
-		// FlushInterval -1 sends each stream chunk at once.
+		// handleForward sets the target URL. FlushInterval -1 sends each stream chunk at once.
 		Director:      func(*http.Request) {},
 		FlushInterval: -1,
 		Transport: &http.Transport{
@@ -59,32 +47,21 @@ func New(reg *registry.Registry, authStore *auth.Store, log *slog.Logger) *Handl
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			h.log.Warn("node unreachable", "host", r.URL.Host, "error", err)
-			openaierr.Write(w, http.StatusBadGateway, openaierr.TypeUnavailable,
-				"node at "+r.URL.Host+" is unreachable")
+			respond.Error(w, http.StatusBadGateway, "node at "+r.URL.Host+" is unreachable")
 		},
 	}
 	return h
 }
 
-// Register adds the routes to mux.
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", h.handleModels)
-	for _, p := range routes {
+	for _, p := range forwardPaths {
 		mux.HandleFunc("POST "+p, h.handleForward)
 	}
 }
 
-func (h *Handler) needUser(w http.ResponseWriter, r *http.Request) (auth.User, bool) {
-	u, ok := h.auth.Authenticate(r)
-	if !ok {
-		openaierr.Write(w, http.StatusUnauthorized, openaierr.TypeAuth, "missing or invalid API key")
-		return auth.User{}, false
-	}
-	return u, true
-}
-
 func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
-	u, ok := h.needUser(w, r)
+	u, ok := h.auth.RequireUser(w, r)
 	if !ok {
 		return
 	}
@@ -97,32 +74,29 @@ func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
 	for _, m := range h.reg.Models(u.ID, h.auth.GroupIDsFor(u.ID)) {
 		data = append(data, model{ID: m.ID, Object: "model", OwnedBy: m.NodeID})
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data})
+	respond.JSON(w, map[string]any{"object": "list", "data": data})
 }
 
 func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
-	u, ok := h.needUser(w, r)
+	u, ok := h.auth.RequireUser(w, r)
 	if !ok {
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBody))
 	if err != nil {
-		openaierr.Write(w, http.StatusRequestEntityTooLarge, openaierr.TypeInvalidRequest, "request body is too large")
+		respond.Error(w, http.StatusRequestEntityTooLarge, "request body is too large")
 		return
 	}
 	var req struct {
 		Model string `json:"model"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil || req.Model == "" {
-		openaierr.Write(w, http.StatusBadRequest, openaierr.TypeInvalidRequest,
-			`request body must be JSON with a "model" field`)
+		respond.Error(w, http.StatusBadRequest, `request body must be JSON with a "model" field`)
 		return
 	}
 	node, found := h.reg.Lookup(req.Model, u.ID, h.auth.GroupIDsFor(u.ID))
 	if !found {
-		openaierr.Write(w, http.StatusNotFound, openaierr.TypeNotFound,
-			fmt.Sprintf("no live node serves model %q", req.Model))
+		respond.Error(w, http.StatusNotFound, fmt.Sprintf("no live node serves model %q", req.Model))
 		return
 	}
 	h.log.Info("forward", "method", r.Method, "path", r.URL.Path, "model", req.Model, "node_id", node.NodeID, "user_id", u.ID)

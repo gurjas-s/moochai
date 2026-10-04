@@ -1,16 +1,11 @@
-// Package join serves the pages that a new node uses to join central.
-//
-// A person on the tailnet opens GET /join in a browser. The page shows one
-// command. The command gets GET /join.sh, which downloads the node binary
-// and a node config from central, and then starts the node.
-//
-// Central fills the config with the address from the request Host header.
-// This is the address that the person used to reach central.
+// Package join serves the page, script, config, and binary that a new node uses to join central.
 package join
 
 import (
 	"fmt"
 	"html/template"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -19,53 +14,47 @@ import (
 	"regexp"
 	texttemplate "text/template"
 
-	"peerai-serv/internal/openaierr"
+	"peerai-serv/internal/respond"
 )
 
-// BinaryName returns the file name of the node binary for goos and goarch.
-func BinaryName(goos, goarch string) string {
-	return "peerai-node-" + goos + "-" + goarch
-}
+const binaryPrefix = "peerai-node-"
 
-// platformRE accepts only "<os>-<arch>" values, so a request cannot
-// read a file outside the binary directory.
+// Only "<os>-<arch>", so a request cannot read files outside binDir.
 var platformRE = regexp.MustCompile(`^[a-z0-9]+-[a-z0-9]+$`)
 
-// Handler serves the join routes.
 type Handler struct {
 	binDir string
 	log    *slog.Logger
 }
 
-// New returns a Handler. binDir contains the node binaries with names from
-// BinaryName. A nil log means slog.Default.
-func New(binDir string, log *slog.Logger) *Handler {
-	if log == nil {
-		log = slog.Default()
-	}
-	return &Handler{binDir: binDir, log: log.With("component", "join")}
+func New(binDir string) *Handler {
+	return &Handler{binDir: binDir, log: slog.With("component", "join")}
 }
 
-// Register adds the join routes to mux.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /join", h.handlePage)
-	mux.HandleFunc("GET /join.sh", h.handleScript)
-	mux.HandleFunc("GET /join/peerai-node.yaml", h.handleConfig)
+	mux.HandleFunc("GET /join", serveTemplate(pageTmpl, "text/html; charset=utf-8"))
+	mux.HandleFunc("GET /join/peerai-node.yaml", serveTemplate(configTmpl, "application/yaml; charset=utf-8"))
+
+	script := serveTemplate(scriptTmpl, "text/x-shellscript; charset=utf-8")
+	mux.HandleFunc("GET /join.sh", func(w http.ResponseWriter, r *http.Request) {
+		script(w, r)
+		h.log.Info("join script sent", "remote", r.RemoteAddr)
+	})
 	mux.HandleFunc("GET /join/bin/{platform}", h.handleBinary)
 }
 
-type params struct {
-	Host string // central host as the caller reached it
-	Port string // central port as the caller reached it
-	Base string // http://host:port
+type joinInfo struct {
+	Host       string
+	Port       string
+	CentralURL string
 }
 
-func paramsFor(r *http.Request) params {
+func joinInfoFor(r *http.Request) joinInfo {
 	host, port, err := net.SplitHostPort(r.Host)
 	if err != nil {
 		host, port = r.Host, "80"
 	}
-	return params{Host: host, Port: port, Base: "http://" + net.JoinHostPort(host, port)}
+	return joinInfo{Host: host, Port: port, CentralURL: "http://" + net.JoinHostPort(host, port)}
 }
 
 var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>
@@ -83,7 +72,7 @@ code { font-family: ui-monospace, Menlo, monospace; }
 </head>
 <body>
 <h1>Join PeerAI</h1>
-<p>This page shares your local models with PeerAI central at <code>{{.Base}}</code>.</p>
+<p>This page shares your local models with PeerAI central at <code>{{.CentralURL}}</code>.</p>
 <h2>Before you start</h2>
 <ol>
 <li>Connect Tailscale to the same tailnet as central. You see this page, so this step is done.</li>
@@ -91,7 +80,7 @@ code { font-family: ui-monospace, Menlo, monospace; }
 </ol>
 <h2>Start the node</h2>
 <p>Run this command in a terminal (macOS or Linux):</p>
-<pre><code>curl -fsSL {{.Base}}/join.sh | sh</code></pre>
+<pre><code>curl -fsSL {{.CentralURL}}/join.sh | sh</code></pre>
 <p>The command installs the node in <code>~/.peerai</code> and starts it.
 Keep the terminal open. Press Ctrl+C to stop the node.
 Run the same command again to start the node later.</p>
@@ -99,13 +88,13 @@ Run the same command again to start the node later.</p>
 <p>The default config uses Ollama at <code>http://127.0.0.1:11434</code>.
 For a different server, edit <code>~/.peerai/peerai-node.yaml</code> and run the command again.</p>
 <h2>Use the models</h2>
-<p>Set the OpenAI base URL of your app to <code>{{.Base}}/v1</code>.
-See all models at <a href="{{.Base}}/v1/models">{{.Base}}/v1/models</a>.</p>
+<p>Set the OpenAI base URL of your app to <code>{{.CentralURL}}/v1</code>.
+See all models at <a href="{{.CentralURL}}/v1/models">{{.CentralURL}}/v1/models</a>.</p>
 </body>
 </html>
 `))
 
-var configTmpl = texttemplate.Must(texttemplate.New("config").Parse(`# PeerAI node config. Made by central at {{.Base}}.
+var configTmpl = texttemplate.Must(texttemplate.New("config").Parse(`# PeerAI node config. Made by central at {{.CentralURL}}.
 network:
   central_host: "{{.Host}}"
   central_port: {{.Port}}
@@ -126,10 +115,10 @@ backends:
 `))
 
 var scriptTmpl = texttemplate.Must(texttemplate.New("script").Parse(`#!/bin/sh
-# PeerAI node installer. Made by central at {{.Base}}.
+# PeerAI node installer. Made by central at {{.CentralURL}}.
 set -eu
 
-CENTRAL="{{.Base}}"
+CENTRAL="{{.CentralURL}}"
 DIR="${PEERAI_DIR:-$HOME/.peerai}"
 mkdir -p "$DIR/bin"
 
@@ -179,42 +168,29 @@ echo "peerai: start node. Press Ctrl+C to stop."
 exec "$DIR/bin/peerai-node" --config "$DIR/peerai-node.yaml"
 `))
 
-func (h *Handler) handlePage(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = pageTmpl.Execute(w, paramsFor(r))
-}
-
-func (h *Handler) handleScript(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
-	_ = scriptTmpl.Execute(w, paramsFor(r))
-	h.log.Info("join script sent", "remote", r.RemoteAddr)
-}
-
-func (h *Handler) handleConfig(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
-	_ = configTmpl.Execute(w, paramsFor(r))
+func serveTemplate(tmpl interface{ Execute(io.Writer, any) error }, contentType string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", contentType)
+		_ = tmpl.Execute(w, joinInfoFor(r))
+	}
 }
 
 func (h *Handler) handleBinary(w http.ResponseWriter, r *http.Request) {
 	platform := r.PathValue("platform")
 	if !platformRE.MatchString(platform) {
-		openaierr.Write(w, http.StatusBadRequest, openaierr.TypeInvalidRequest,
-			fmt.Sprintf("platform %q is invalid", platform))
+		respond.Error(w, http.StatusBadRequest, fmt.Sprintf("platform %q is invalid", platform))
 		return
 	}
-	path := filepath.Join(h.binDir, "peerai-node-"+platform)
+	path := filepath.Join(h.binDir, binaryPrefix+platform)
 	f, err := os.Open(path)
-	if err != nil {
-		h.log.Warn("node binary missing", "platform", platform, "path", path)
-		openaierr.Write(w, http.StatusNotFound, openaierr.TypeNotFound,
-			fmt.Sprintf("central has no node binary for %s", platform))
-		return
+	var info fs.FileInfo
+	if err == nil {
+		defer f.Close()
+		info, err = f.Stat()
 	}
-	defer f.Close()
-	info, err := f.Stat()
 	if err != nil || info.IsDir() {
-		openaierr.Write(w, http.StatusNotFound, openaierr.TypeNotFound,
-			fmt.Sprintf("central has no node binary for %s", platform))
+		h.log.Warn("node binary missing", "platform", platform, "path", path)
+		respond.Error(w, http.StatusNotFound, fmt.Sprintf("central has no node binary for %s", platform))
 		return
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")

@@ -17,7 +17,7 @@ type testEnv struct {
 	alice auth.User
 	bob   auth.User
 	eve   auth.User
-	group auth.GroupView
+	group auth.Group
 }
 
 func setup(t *testing.T, node http.HandlerFunc) *testEnv {
@@ -41,7 +41,7 @@ func setup(t *testing.T, node http.HandlerFunc) *testEnv {
 		Services:   []registry.Service{{Models: []string{"qwen"}, Healthy: true}},
 	})
 	mux := http.NewServeMux()
-	New(reg, store, nil).Register(mux)
+	New(reg, store).Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return &testEnv{srv: srv, alice: alice, bob: bob, eve: eve, group: g}

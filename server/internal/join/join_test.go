@@ -13,7 +13,7 @@ import (
 func newServer(t *testing.T, binDir string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	New(binDir, nil).Register(mux)
+	New(binDir).Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -81,7 +81,7 @@ func TestConfigIsValidYAMLWithCentralAddress(t *testing.T) {
 
 func TestBinary(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, BinaryName("darwin", "arm64")), []byte("BIN"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, binaryPrefix+"darwin-arm64"), []byte("BIN"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	srv := newServer(t, dir)

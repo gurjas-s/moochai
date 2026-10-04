@@ -16,7 +16,7 @@ func newMux() (*http.ServeMux, *auth.Store, *registry.Registry) {
 	reg := registry.New(time.Minute)
 	store := auth.New()
 	mux := http.NewServeMux()
-	New(reg, store, nil).Register(mux)
+	New(reg, store).Register(mux)
 	return mux, store, reg
 }
 
