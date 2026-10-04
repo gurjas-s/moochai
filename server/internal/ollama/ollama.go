@@ -199,7 +199,13 @@ func (h *Handler) stream(w http.ResponseWriter, body io.Reader, model string) {
 			flush.Flush()
 		}
 	}
-	writeLine(w, map[string]any{"model": model, "created_at": time.Now().UTC(), "done": true})
+	writeLine(w, map[string]any{
+		"model":       model,
+		"created_at":  time.Now().UTC(),
+		"message":     map[string]any{"role": "assistant", "content": ""},
+		"done_reason": "stop",
+		"done":        true,
+	})
 	if flush != nil {
 		flush.Flush()
 	}
