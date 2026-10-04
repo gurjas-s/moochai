@@ -5,7 +5,7 @@ Each user gets its own loopback IP (127.0.0.10, .11, ...), so central can tell t
 and the analytics show real give and take. Givers run a fake backend and advertise models.
 Takers advertise no models and only send requests. Most users do both.
 
-Usage (start central first with `make start` in server/):
+Usage (start central first with `make start` in central/):
     python3 demo/simulate.py                 # 20 users for 5 minutes
     python3 demo/simulate.py --users 15 --minutes 10 --seed 7
     python3 demo/simulate.py --single-ip     # no sudo, but central sees one requester

@@ -1,8 +1,8 @@
-# AGENTS.md — Mooch.ai Client
+# AGENTS.md — Mooch.ai Node
 
 ## 1. Project context
 
-Mooch.ai Client is a single Go binary (`go build ./cmd/mooch-node`) that runs
+Mooch.ai Node is a single Go binary (`go build ./cmd/mooch-node`) that runs
 next to local AI backends (vLLM, Ollama, llama.cpp, Whisper, and others).
 It has two jobs:
 
@@ -18,16 +18,16 @@ Read that file before you change behavior.
 
 ## 2. Folder structure
 
-The Go module lives in `Client/`. The target layout is:
+The Go module lives in `node/`. The target layout is:
 
 ```text
-Client/
+node/
   cmd/mooch-node/      single binary entrypoint (must build to one executable)
   internal/
     config/             --config flag, default paths, validation, YAML (control plane)
     identity/           Tailscale IP, persisted node.id, listen_addr (control plane)
     central/            register + heartbeat, backoff/retries (control plane)
-    server/             listener, /healthz, OpenAI routes, shutdown, logs (data plane)
+    server/              listener, /healthz, OpenAI routes, shutdown, logs (data plane)
     proxy/              forwarding: route by model, ReverseProxy, streaming (data plane)
 ```
 

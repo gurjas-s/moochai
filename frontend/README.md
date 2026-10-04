@@ -21,7 +21,7 @@ The site tries `./status.json` first, then `./public/status.example.json`.
 The same rule applies to the board.
 
 Central serves `GET /leaderboard.json` for the last 24 hours.
-This route needs analytics (`MOOCH_DB_URL`). Read [`server/README.md`](../server/README.md#analytics).
+This route needs analytics (`MOOCH_DB_URL`). Read [`central/README.md`](../central/README.md#analytics).
 Central does not make `status.json`.
 
 ## Anonymize rules

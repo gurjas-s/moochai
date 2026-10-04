@@ -5,7 +5,7 @@ These scripts simulate a cluster of 20 to 100 users on one computer, so you can 
 ## Start central with analytics
 
 ```sh
-cd server
+cd central
 make start                  # TimescaleDB, and central with analytics
 ```
 
