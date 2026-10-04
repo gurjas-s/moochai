@@ -115,28 +115,25 @@ Central shows a terminal dashboard when it runs in a terminal:
 ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
 │ CONSOLE                                                                                      │
 │           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:01  │ JOIN  gpu-box 100.64.0.7 · models: qwen2.5:7b, llama3.1:8b                     │ │
+│ 12:00:09  │ ROUTE [ laptop → gpu-box ] MODEL qwen2.5:7b · served by: gpu-box · #1          │ │
 │           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 │           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:09  │ ROUTE #1 laptop asks for qwen2.5:7b → gpu-box · served by: gpu-box             │ │
+│ 12:00:09  │ REQ   [ laptop → gpu-box ] "Hello" · #1                                        │ │
 │           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 │           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:09  │ REQ   [ laptop → gpu-box ] POST "Hello" /v1/chat/completions · #1              │ │
-│           ╰────────────────────────────────────────────────────────────────────────────────╯ │
-│           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:10  │ RESP  [ gpu-box → laptop ] 200 "Hello! How can I help you?" in 812ms · #1      │ │
+│ 12:00:10  │ RESP  [ gpu-box → laptop ] "Hello! How can I help you?" in 812ms · #1          │ │
 │           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 - **NODES** shows the live nodes. A yellow dot shows that a node has not sent a heartbeat for 20 seconds.
 - **MODELS** shows each available model and the nodes that serve the model, separated by commas.
-- **CONSOLE** shows the events: nodes that join or leave, routes, requests, and responses.
-  A frame encloses each join, leave, route, and message between two nodes: green for a join, red for a leave, yellow for a route, blue for a request, green for a response, and red for an error response.
-  REQ and RESP lines show the direction of each message, for example `[ laptop → gpu-box ]`.
-  The number at the end of a line (`#1`) connects a request to its response.
-  When a line is too long, the dashboard cuts the message text and the path first.
-  The direction, the method, the status code, the duration, and the number stay on the line.
+- **CONSOLE** shows each request in three frames: ROUTE (yellow), REQ (blue), and RESP (green, or red for an error).
+  Each line shows the direction, for example `[ laptop → gpu-box ]`.
+  ROUTE shows the model. REQ shows the prompt. RESP shows the answer and the duration.
+  The number at the end of a line (`#1`) connects the frames of one request.
+  When a line is too long, the dashboard cuts the prompt or the answer first.
+  Use `-details` to also show the method, the path, and the status. RESP always shows an error status.
 
 Use these keys in the dashboard:
 
@@ -147,7 +144,7 @@ Use these keys in the dashboard:
 | `g` `G` | Go to the top or the bottom of the console |
 | `q` | Stop central |
 
-Use `-plain` to print the events as lines without the dashboard.
+Use `-plain` to print the events as lines without the dashboard. The lines also show the nodes that join or leave.
 Use `-verbose` to print plain log lines.
 Central prints lines automatically when its output is not a terminal.
 

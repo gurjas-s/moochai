@@ -78,6 +78,7 @@ go run ./cmd/mooch-central -addr 127.0.0.1:8080   # local use only
 | `-node-ttl` | `45s` | Remove a node after this time without a heartbeat. |
 | `-debug` | `false` | Log each heartbeat. |
 | `-plain` | `false` | Print the event feed as lines. Do not show the dashboard. |
+| `-details` | `false` | Show the method, the path, and the status on REQ and RESP lines. |
 | `-verbose` | `false` | Print plain log lines. Do not show the feed or the dashboard. |
 
 Run these checks before a push:
