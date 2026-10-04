@@ -17,20 +17,20 @@ func TestFeedLines(t *testing.T) {
 		Services: []registry.Service{{Models: []string{"a", "b"}}}})
 	f.Left(registry.Node{NodeID: "n2"})
 	id := f.Route("laptop", "a", []string{"gpu-box"}, "gpu-box")
-	f.Request(id, "POST /v1/chat/completions", "hi")
-	f.Response(id, 200, 1234*time.Millisecond, "")
+	f.Request(id, "laptop", "gpu-box", "POST /v1/chat/completions", "hi")
+	f.Response(id, "gpu-box", "laptop", 200, 1234*time.Millisecond, "")
 	want := `09:05:00  JOIN  gpu-box 100.64.0.7 · models: a, b
 09:05:00  LEAVE n2 no heartbeat
 09:05:00  ROUTE #1 laptop asks for a → gpu-box · served by: gpu-box
-09:05:00  REQ   #1 POST /v1/chat/completions "hi"
-09:05:00  RESP  #1 200 in 1.234s
+09:05:00  REQ   #1 laptop → gpu-box POST /v1/chat/completions "hi"
+09:05:00  RESP  #1 gpu-box → laptop 200 in 1.234s
 `
 	if out.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
 	var nilFeed *Feed
 	nilFeed.Joined(registry.Node{}) // A nil feed must not panic.
-	nilFeed.Response(nilFeed.Route("", "", nil, ""), 0, 0, "")
+	nilFeed.Response(nilFeed.Route("", "", nil, ""), "", "", 0, 0, "")
 }
 
 func TestResponsePreview(t *testing.T) {

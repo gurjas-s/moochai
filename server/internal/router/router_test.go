@@ -157,8 +157,8 @@ func TestForwardPrintsFeed(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"ROUTE #1 127.0.0.1 asks for qwen → n1 · served by: n1",
-		`REQ   #1 POST /v1/chat/completions "hello there"`,
-		"RESP  #1 418 in ",
+		`REQ   #1 127.0.0.1 → n1 POST /v1/chat/completions "hello there"`,
+		"RESP  #1 n1 → 127.0.0.1 418 in ",
 		`"general kenobi"`,
 	} {
 		if !strings.Contains(got, want) {
