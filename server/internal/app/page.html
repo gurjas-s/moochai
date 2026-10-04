@@ -61,7 +61,6 @@ input[type=text] {
   max-width: 100%;
 }
 input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
-input.key { width: 28rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8125rem; }
 button {
   font: inherit;
   font-size: 0.875rem;
@@ -98,74 +97,22 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 0.75rem 0; }
 <body>
 <header>
 <h1>PeerAI Test UI</h1>
-<p>Test users, groups, nodes, and models. Data lives in central memory only.</p>
+<p>Test nodes and models. Data lives in central memory only.</p>
 </header>
 
 <section>
-<h2>1. API key</h2>
-<p>Paste an existing API key, or register a new user. The key is stored in this browser only.</p>
+<h2>1. Nodes and models</h2>
+<p>Lists the live nodes and models. Calls GET /api/nodes and GET /v1/models.</p>
 <div class="row">
-<label for="key">API key</label>
-<input id="key" class="key" type="text" placeholder="peerai_..." autocomplete="off" spellcheck="false">
-<button onclick="saveKey()">Save</button>
-<button onclick="clearKey()">Clear</button>
-</div>
-<div class="row">
-<label for="regName">New user</label>
-<input id="regName" type="text" placeholder="user name" autocomplete="off">
-<button class="primary" onclick="register()">Register user</button>
-</div>
-<pre id="regOut"></pre>
-</section>
-
-<section>
-<h2>2. Identity</h2>
-<p>Show the user, groups, and accessible node count for the saved key. Calls GET /api/me.</p>
-<div class="row"><button onclick="showMe()">GET /api/me</button></div>
-<pre id="meOut"></pre>
-</section>
-
-<section>
-<h2>3. Groups</h2>
-<p>Groups restrict which models each member can access. Only members see a group. Only the owner adds members.</p>
-<div class="row">
-<button onclick="listGroups()">List my groups</button>
-<span class="hint">Calls GET /api/groups</span>
-</div>
-<div class="row">
-<label for="grpName">New group</label>
-<input id="grpName" type="text" placeholder="group name" autocomplete="off">
-<button class="primary" onclick="createGroup()">Create group</button>
-</div>
-<pre id="grpOut"></pre>
-<hr class="sep">
-<div class="row">
-<label for="grpID">Group ID</label>
-<input id="grpID" type="text" placeholder="group_id" autocomplete="off" spellcheck="false">
-<button onclick="showGroup()">Show group</button>
-</div>
-<div class="row">
-<label for="memberID">Member</label>
-<input id="memberID" type="text" placeholder="user_id to add" autocomplete="off" spellcheck="false">
-<button onclick="addMember()">Add member</button>
-<button onclick="leave()">Leave group</button>
-</div>
-<pre id="grpDetail"></pre>
-</section>
-
-<section>
-<h2>4. Nodes and models</h2>
-<p>Lists only nodes and models shared with the saved key. Calls GET /api/nodes and GET /v1/models.</p>
-<div class="row">
-<button onclick="listNodes()">List nodes I can access</button>
-<button onclick="listModels()">List models I can access</button>
+<button onclick="listNodes()">List nodes</button>
+<button onclick="listModels()">List models</button>
 </div>
 <pre id="nodesOut"></pre>
 </section>
 
 <section>
-<h2>5. Chat completion test</h2>
-<p>Sends one chat request with the saved key. The model must be shared with the caller.</p>
+<h2>2. Chat completion test</h2>
+<p>Sends one chat request. A live node must serve the model.</p>
 <div class="row">
 <label for="chatModel">Model</label>
 <input id="chatModel" type="text" placeholder="model id" autocomplete="off" spellcheck="false">
@@ -179,8 +126,8 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 0.75rem 0; }
 </section>
 
 <section>
-<h2>6. Register node (test)</h2>
-<p>Registers a test node under the saved key. The node shares the listed models with the listed groups. Calls POST /api/nodes/register.</p>
+<h2>3. Register node (test)</h2>
+<p>Registers a test node that serves the listed models. Calls POST /api/nodes/register.</p>
 <div class="row">
 <label for="nodeID">Node ID</label>
 <input id="nodeID" type="text" placeholder="node id" autocomplete="off" spellcheck="false">
@@ -202,10 +149,6 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 0.75rem 0; }
 <input id="nodeModels" type="text" placeholder="comma separated, e.g. qwen2.5" autocomplete="off" spellcheck="false">
 </div>
 <div class="row">
-<label for="nodeGroups">Groups</label>
-<input id="nodeGroups" type="text" placeholder="comma separated group ids" autocomplete="off" spellcheck="false">
-</div>
-<div class="row">
 <button class="primary" onclick="registerNode()">Register node</button>
 <span class="hint">Register and heartbeat use the same endpoint.</span>
 </div>
@@ -213,10 +156,6 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 0.75rem 0; }
 </section>
 
 <script>
-function key() { return (document.getElementById('key').value || '').trim(); }
-function saveKey() { localStorage.setItem('peerai_key', key()); out('regOut', 'Saved.'); }
-function clearKey() { document.getElementById('key').value = ''; localStorage.removeItem('peerai_key'); }
-function auth() { return {'Authorization': 'Bearer ' + key()}; }
 function out(id, v) { document.getElementById(id).textContent = typeof v === 'string' ? v : JSON.stringify(v, null, 2); }
 async function call(id, path, opts) {
   try {
@@ -226,56 +165,27 @@ async function call(id, path, opts) {
     return JSON.parse(t);
   } catch (e) { out(id, 'error: ' + e); return null; }
 }
-async function register() {
-  const name = document.getElementById('regName').value.trim();
-  const d = await call('regOut', '/api/users', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
-  if (d && d.api_key) { document.getElementById('key').value = d.api_key; localStorage.setItem('peerai_key', d.api_key); }
-}
-async function showMe() { await call('meOut', '/api/me', {headers: auth()}); }
-async function listGroups() { await call('grpOut', '/api/groups', {headers: auth()}); }
-async function createGroup() {
-  const name = document.getElementById('grpName').value.trim();
-  const d = await call('grpOut', '/api/groups', {method: 'POST', headers: Object.assign({'Content-Type': 'application/json'}, auth()), body: JSON.stringify({name})});
-  if (d && d.group_id) document.getElementById('grpID').value = d.group_id;
-}
-async function showGroup() {
-  const id = document.getElementById('grpID').value.trim();
-  await call('grpDetail', '/api/groups/' + encodeURIComponent(id), {headers: auth()});
-}
-async function addMember() {
-  const id = document.getElementById('grpID').value.trim();
-  const user_id = document.getElementById('memberID').value.trim();
-  await call('grpDetail', '/api/groups/' + encodeURIComponent(id) + '/members', {method: 'POST', headers: Object.assign({'Content-Type': 'application/json'}, auth()), body: JSON.stringify({user_id})});
-}
-async function leave() {
-  const id = document.getElementById('grpID').value.trim();
-  const me = await (await fetch('/api/me', {headers: auth()})).json();
-  await call('grpDetail', '/api/groups/' + encodeURIComponent(id) + '/members/' + encodeURIComponent(me.user_id), {method: 'DELETE', headers: auth()});
-}
-async function listNodes() { await call('nodesOut', '/api/nodes', {headers: auth()}); }
-async function listModels() { await call('nodesOut', '/v1/models', {headers: auth()}); }
+async function listNodes() { await call('nodesOut', '/api/nodes', {}); }
+async function listModels() { await call('nodesOut', '/v1/models', {}); }
 async function registerNode() {
   const ip = document.getElementById('nodeIP').value.trim() || '127.0.0.1';
   const port = document.getElementById('nodePort').value.trim() || '9100';
   const models = document.getElementById('nodeModels').value.split(',').map(function (m) { return m.trim(); }).filter(Boolean);
-  const groups = document.getElementById('nodeGroups').value.split(',').map(function (g) { return g.trim(); }).filter(Boolean);
   const body = {
     node_id: document.getElementById('nodeID').value.trim(),
     name: document.getElementById('nodeName').value.trim(),
     tailscale_ip: ip,
     listen_addr: ip + ':' + port,
     version: 'dev',
-    groups: groups,
     services: [{id: 'ui-test', type: 'llm', provider: 'ollama', models: models, supports_streaming: true, healthy: true}]
   };
-  await call('nodeOut', '/api/nodes/register', {method: 'POST', headers: Object.assign({'Content-Type': 'application/json'}, auth()), body: JSON.stringify(body)});
+  await call('nodeOut', '/api/nodes/register', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 }
 async function chat() {
   const model = document.getElementById('chatModel').value.trim();
   const content = document.getElementById('chatMsg').value || 'Hello';
-  await call('chatOut', '/v1/chat/completions', {method: 'POST', headers: Object.assign({'Content-Type': 'application/json'}, auth()), body: JSON.stringify({model, messages: [{role: 'user', content}]})});
+  await call('chatOut', '/v1/chat/completions', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({model, messages: [{role: 'user', content}]})});
 }
-(function init() { document.getElementById('key').value = localStorage.getItem('peerai_key') || ''; })();
 </script>
 </body>
 </html>
