@@ -120,8 +120,41 @@ func TestForwardErrors(t *testing.T) {
 
 func TestModels(t *testing.T) {
 	env := setup(t, func(w http.ResponseWriter, r *http.Request) {})
-	if code, body := get(t, env.srv.URL+"/v1/models"); code != 200 || !strings.Contains(body, `"id":"qwen"`) {
+	code, body := get(t, env.srv.URL+"/v1/models")
+	if code != 200 || !strings.Contains(body, `"id":"qwen"`) {
 		t.Fatalf("models = %d %s", code, body)
+	}
+	if !strings.Contains(body, `"owned_by":"vllm"`) {
+		t.Fatalf("models must use vllm owner for discovery: %s", body)
+	}
+}
+
+func TestHealth(t *testing.T) {
+	env := setup(t, func(w http.ResponseWriter, r *http.Request) {})
+	if code, _ := get(t, env.srv.URL+"/health"); code != 200 {
+		t.Fatalf("health = %d, want 200", code)
+	}
+}
+
+func TestModelsExposeMaxModelLen(t *testing.T) {
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	t.Cleanup(fake.Close)
+	reg := registry.New(time.Minute)
+	reg.Upsert(registry.Node{
+		NodeID:     "n1",
+		ListenAddr: strings.TrimPrefix(fake.URL, "http://"),
+		Services: []registry.Service{{
+			Models:  []string{"qwen"},
+			Healthy: true,
+			Meta:    map[string]any{"context_window": 8192},
+		}},
+	})
+	mux := http.NewServeMux()
+	New(reg, nil).Register(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	if code, body := get(t, srv.URL+"/v1/models"); code != 200 || !strings.Contains(body, `"max_model_len":8192`) {
+		t.Fatalf("models = %d %s, want max_model_len 8192", code, body)
 	}
 }
 
