@@ -3,6 +3,8 @@ package main
 import (
 	"net"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -78,5 +80,40 @@ func TestPrintJoinInfo(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestLoadEnvFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	body := "# local settings\n\nMOOCH_TEST_URL=postgres://u:p@127.0.0.1:5432/db?sslmode=disable\n" +
+		"export MOOCH_TEST_QUOTED=\"a b\"\nMOOCH_TEST_SHELL=from-file\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MOOCH_TEST_SHELL", "from-shell")
+	for _, k := range []string{"MOOCH_TEST_URL", "MOOCH_TEST_QUOTED"} {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+	if err := loadEnvFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv("MOOCH_TEST_URL"); got != "postgres://u:p@127.0.0.1:5432/db?sslmode=disable" {
+		t.Fatalf("url = %q: a value with = must stay whole", got)
+	}
+	if got := os.Getenv("MOOCH_TEST_QUOTED"); got != "a b" {
+		t.Fatalf("quoted = %q", got)
+	}
+	if got := os.Getenv("MOOCH_TEST_SHELL"); got != "from-shell" {
+		t.Fatalf("shell = %q: the shell must win over the file", got)
+	}
+	if err := loadEnvFile(filepath.Join(t.TempDir(), "missing")); err != nil {
+		t.Fatalf("missing file: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("NOT A PAIR\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadEnvFile(path); err == nil || !strings.Contains(err.Error(), ":1:") {
+		t.Fatalf("bad line error = %v", err)
 	}
 }

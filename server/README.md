@@ -90,7 +90,7 @@ go run ./cmd/mooch-central -addr 127.0.0.1:8080   # local use only
 
 | Flag | Default | Use |
 |------|---------|-----|
-| `-addr` | `:8080` | Listen address. An empty host means the Tailscale IPv4. |
+| `-addr` | `:8080`, or `MOOCH_ADDR` | Listen address. An empty host means the Tailscale IPv4. |
 | `-bin` | `dist` | Directory with node binaries for `/join`. |
 | `-node-ttl` | `45s` | Remove a node after this time without a heartbeat. |
 | `-debug` | `false` | Log each heartbeat. |
@@ -113,6 +113,10 @@ make db-down      # stop the database; the data stays in the mooch-db volume
 ```
 
 To use another database, set `MOOCH_DB_URL` before you start central.
+
+Central also reads `MOOCH_DB_URL` and `MOOCH_ADDR` from a `.env` file in the directory where it starts.
+Copy `.env.example` to `.env` to start. Then `go run ./cmd/mooch-central` needs no flags.
+`.env` is in `.gitignore`. A variable that you set in the shell wins over the file.
 For Tiger Cloud, add `sslmode=require` to the URL.
 
 ### What central keeps
@@ -125,8 +129,10 @@ For Tiger Cloud, add `sslmode=require` to the URL.
 
 - Central compresses `requests` chunks after 7 days and deletes them after 90 days.
 - Central deletes `heartbeats` after 30 days.
-- **Work** is the time that a node spends on a request.
-- The **balance** of a participant is work served minus work used.
+- **Tokens** come from the `usage` field of each backend response. A response without `usage` counts zero tokens.
+  For an Ollama chat stream, central asks the backend for usage. Central does not change other request bodies.
+- The **balance** of a participant is tokens served minus tokens used.
+- Fair routing uses **work**: the time that a node spends on requests.
 - A participant is a node, or a tool at an IP that is not a node.
 
 ### Fair routing
@@ -168,9 +174,9 @@ Without a database, central uses rotation only.
 | GET | `/join/mooch-node.yaml` | Default node config |
 | GET | `/join/bin/{os}-{arch}` | Node binary |
 | GET | `/app` | Test UI for nodes and models |
-| GET | `/analytics` | Analytics page: givers, takers, balance, work over time, models |
+| GET | `/analytics` | Analytics page: givers, takers, token balance, live rate, models. Updates every 0.5 s. |
+| GET | `/analytics/chart.js` | Chart.js 4.5.1 (MIT), embedded in central for the page |
 | GET | `/api/analytics/summary?window=` | Give and take of each participant. `window` is `1h`, `24h`, `7d`, or `30d`. |
-| GET | `/api/analytics/timeseries?window=` | Work that each node served, per time bucket |
 | GET | `/api/analytics/models?window=` | Use of each model |
 | GET | `/leaderboard.json` | Last 24 hours in the format of `frontend/public/leaderboard.example.json` |
 

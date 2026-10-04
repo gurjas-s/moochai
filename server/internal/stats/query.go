@@ -114,7 +114,7 @@ type Live struct {
 	RowsStored   int64   `json:"rows_stored"`
 }
 
-const liveSpan = 10 * time.Second
+const liveSpan = 5 * time.Second
 
 func (s *Store) summary(ctx context.Context, name string, w window) (any, error) {
 	since := time.Now().Add(-w.span)

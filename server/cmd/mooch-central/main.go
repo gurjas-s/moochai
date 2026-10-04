@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"flag"
@@ -13,6 +14,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -30,7 +32,15 @@ import (
 var tailscaleRange = netip.MustParsePrefix("100.64.0.0/10")
 
 func main() {
-	addr := flag.String("addr", ":8080", "listen address. An empty host means the Tailscale IPv4 of this machine")
+	if err := loadEnvFile(".env"); err != nil {
+		fmt.Fprintln(os.Stderr, "read .env:", err)
+		os.Exit(1)
+	}
+	defaultAddr := ":8080"
+	if a := os.Getenv("MOOCH_ADDR"); a != "" {
+		defaultAddr = a
+	}
+	addr := flag.String("addr", defaultAddr, "listen address, or MOOCH_ADDR. An empty host means the Tailscale IPv4 of this machine")
 	binDir := flag.String("bin", "dist", "directory with node binaries for /join")
 	ttl := flag.Duration("node-ttl", 45*time.Second, "remove a node after this time without a heartbeat")
 	debug := flag.Bool("debug", false, "log each heartbeat")
@@ -176,6 +186,38 @@ func openStats(ctx context.Context) *stats.Store {
 	}
 	slog.Info("analytics on")
 	return store
+}
+
+// loadEnvFile sets each KEY=value line of path as an environment variable. A variable that is already set
+// keeps its value, so the shell wins over the file. A missing file is not an error.
+func loadEnvFile(path string) error {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for n := 1; sc.Scan(); n++ {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(strings.TrimPrefix(line, "export "), "=")
+		if !ok {
+			return fmt.Errorf("%s:%d: want KEY=value", path, n)
+		}
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+			value = value[1 : len(value)-1]
+		}
+		if _, set := os.LookupEnv(key); !set {
+			os.Setenv(key, value)
+		}
+	}
+	return sc.Err()
 }
 
 func setLogOutput(w io.Writer, level slog.Level) {
