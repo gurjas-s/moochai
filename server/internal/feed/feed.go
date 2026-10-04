@@ -103,15 +103,15 @@ func (f *Feed) Banner(addr string) {
 	f.printf("\n%s%s\n", out, f.paint(green, "╰"+border+"╯"))
 }
 
-// Joined prints a line when a new node registers.
+// Joined prints a frame when a new node registers. The dashboard can cut the model list.
 func (f *Feed) Joined(n registry.Node) {
-	f.event(green, "JOIN", "%s %s", f.paint(cyan, Name(n)),
-		f.paint(dim, n.TailscaleIP+" · models: ")+f.paint(magenta, strings.Join(Models(n), ", ")))
+	f.message(green, "JOIN", f.paint(bold+cyan, Name(n))+" "+f.paint(grey, n.TailscaleIP),
+		f.paint(grey, "· models: ")+f.paint(magenta, strings.Join(Models(n), ", ")), "")
 }
 
-// Left prints a line when a node expires.
+// Left prints a frame when a node expires.
 func (f *Feed) Left(n registry.Node) {
-	f.event(red, "LEAVE", "%s %s", f.paint(cyan, Name(n)), f.paint(dim, "no heartbeat"))
+	f.message(red, "LEAVE", f.paint(bold+cyan, Name(n)), f.paint(grey, "no heartbeat"), "")
 }
 
 // Route prints the model selection and the node that gets the request in a frame.

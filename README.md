@@ -114,7 +114,9 @@ Central shows a terminal dashboard when it runs in a terminal:
  ● tailnet 100.64.0.1:8080   OpenAI base URL http://100.64.0.1:8080/v1   join curl -fsSL …
 ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
 │ CONSOLE                                                                                      │
-│ 12:00:01  JOIN  gpu-box 100.64.0.7 · models: qwen2.5:7b, llama3.1:8b                         │
+│           ╭────────────────────────────────────────────────────────────────────────────────╮ │
+│ 12:00:01  │ JOIN  gpu-box 100.64.0.7 · models: qwen2.5:7b, llama3.1:8b                     │ │
+│           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 │           ╭────────────────────────────────────────────────────────────────────────────────╮ │
 │ 12:00:09  │ ROUTE #1 laptop asks for qwen2.5:7b → gpu-box · served by: gpu-box             │ │
 │           ╰────────────────────────────────────────────────────────────────────────────────╯ │
@@ -130,7 +132,7 @@ Central shows a terminal dashboard when it runs in a terminal:
 - **NODES** shows the live nodes. A yellow dot shows that a node has not sent a heartbeat for 20 seconds.
 - **MODELS** shows each available model and the nodes that serve the model, separated by commas.
 - **CONSOLE** shows the events: nodes that join or leave, routes, requests, and responses.
-  A frame encloses each route and each message between two nodes: yellow for a route, blue for a request, green for a response, and red for an error response.
+  A frame encloses each join, leave, route, and message between two nodes: green for a join, red for a leave, yellow for a route, blue for a request, green for a response, and red for an error response.
   REQ and RESP lines show the direction of each message, for example `[ laptop → gpu-box ]`.
   The number at the end of a line (`#1`) connects a request to its response.
   When a line is too long, the dashboard cuts the message text and the path first.

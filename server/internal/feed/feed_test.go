@@ -19,8 +19,12 @@ func TestFeedLines(t *testing.T) {
 	id := f.Route("laptop", "a", []string{"gpu-box"}, "gpu-box")
 	f.Request(id, "laptop", "gpu-box", "POST", "/v1/chat/completions", "hi")
 	f.Response(id, "gpu-box", "laptop", 200, 1234*time.Millisecond, "")
-	want := `09:05:00  JOIN  gpu-box 100.64.0.7 · models: a, b
-09:05:00  LEAVE n2 no heartbeat
+	want := `          ╭────────────────────────────────────────────────────────────
+09:05:00  │ JOIN  gpu-box 100.64.0.7 · models: a, b
+          ╰────────────────────────────────────────────────────────────
+          ╭────────────────────────────────────────────────────────────
+09:05:00  │ LEAVE n2 no heartbeat
+          ╰────────────────────────────────────────────────────────────
           ╭────────────────────────────────────────────────────────────
 09:05:00  │ ROUTE #1 laptop asks for a → gpu-box · served by: gpu-box
           ╰────────────────────────────────────────────────────────────
