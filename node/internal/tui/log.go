@@ -47,10 +47,11 @@ func (h *logHandler) Handle(_ context.Context, r slog.Record) error {
 	switch {
 	case r.Message == "proxy forward":
 		h.reqID++
+		host := cmp.Or(get("node_name"), "node")
 		side := strings.Repeat("─", 30)
 		out = paint("90", fmt.Sprintf("%s #%d %s", side, h.reqID, side)) + "\n" +
-			frame(r.Time, "33", "MODEL", chat("33", "central", get("service"))+" "+paint("1;35", get("model")), "", "") +
-			frame(r.Time, "34", "REQUEST", chat("34", "central", get("service")), quote(get("prompt")), "")
+			frame(r.Time, "33", "MODEL", chat("33", "central", host)+" "+paint("1;35", get("model")), "", "") +
+			frame(r.Time, "34", "REQUEST", chat("34", host, get("service")), quote(get("prompt")), "")
 	case r.Message == "proxy response":
 		code, keep := "32", ""
 		status, _ := attrAny(attrs, "status").(int64)
@@ -58,7 +59,7 @@ func (h *logHandler) Handle(_ context.Context, r slog.Record) error {
 			code, keep = "31", " "+paint("1;31", get("status"))
 		}
 		d, _ := attrAny(attrs, "duration").(time.Duration)
-		out = frame(r.Time, code, "RESPONSE", chat(code, get("service"), "central")+keep,
+		out = frame(r.Time, code, "RESPONSE", chat(code, get("service"), cmp.Or(get("node_name"), "node"))+keep,
 			quote(get("answer")), paint("90", "in "+d.Round(time.Millisecond).String()))
 	case r.Message == "request" && get("method") == "POST" && strings.HasPrefix(get("path"), "/v1/"):
 		return nil // The proxy frames already show routed requests.
@@ -85,7 +86,7 @@ func frame(t time.Time, code, tag, keep, text, tail string) string {
 		pad, paint(code, "╰"+rule))
 }
 
-// chat returns the direction of a message, for example "[ central → ollama ]".
+// chat returns the direction of a message, for example "[ my-mac → ollama ]".
 func chat(code, from, to string) string {
 	return paint("1;"+code, "[ ") + paint("1;36", from) + paint("2", " → ") + paint("1;36", to) + paint("1;"+code, " ]")
 }
@@ -168,7 +169,7 @@ func friendlyLine(msg string, attrs []slog.Attr) (string, string) {
 	}
 	rest := []string{}
 	for _, a := range attrs {
-		if a.Key == "component" || a.Key == "time" || a.Key == "level" {
+		if a.Key == "component" || a.Key == "time" || a.Key == "level" || a.Key == "node_name" {
 			continue
 		}
 		rest = append(rest, a.Key+"="+fmt.Sprint(a.Value.Any()))

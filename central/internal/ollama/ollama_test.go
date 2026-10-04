@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"mooch-central/internal/feed"
 	"mooch-central/internal/registry"
 	"mooch-central/internal/stats"
 )
@@ -122,5 +124,59 @@ func TestChatStreamRecordsRequest(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("no row was recorded")
+	}
+}
+
+// lockedBuffer lets the test read what the handler goroutine writes.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func TestChatShowsOnFeed(t *testing.T) {
+	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"pong"}}]}`)
+	}))
+	t.Cleanup(node.Close)
+	reg := registry.New(time.Minute)
+	reg.Upsert(registry.Node{
+		NodeID: "n1", ListenAddr: strings.TrimPrefix(node.URL, "http://"),
+		Services: []registry.Service{{Models: []string{"qwen"}, Healthy: true}},
+	})
+	var out lockedBuffer
+	h := New(reg)
+	h.Feed = feed.New(&out)
+	mux := http.NewServeMux()
+	h.Register(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	resp, err := http.Post(srv.URL+"/api/chat", "application/json",
+		strings.NewReader(`{"model":"qwen","messages":[{"role":"user","content":"ping"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(out.String(), "RESPONSE") && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	for _, want := range []string{"MODEL", "qwen", "REQUEST", "ping", "RESPONSE", "pong"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("feed has no %q:\n%s", want, out.String())
+		}
 	}
 }

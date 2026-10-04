@@ -138,13 +138,16 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
 	h.proxy.ServeHTTP(w, r)
 }
 
-// Requester names the caller: the node at the remote IP, else the remote IP.
+// UnknownRequester is the name of a caller that is not a node. Analytics never show the IP of a caller.
+const UnknownRequester = "computer"
+
+// Requester names the caller: the node at the remote IP, else UnknownRequester.
 func Requester(reg *registry.Registry, r *http.Request) string {
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
 	if n, ok := reg.NodeByIP(host); ok {
 		return feed.Name(n)
 	}
-	return host
+	return UnknownRequester
 }
 
 // maxPreviewBody limits the response bytes that the feed keeps for its preview.

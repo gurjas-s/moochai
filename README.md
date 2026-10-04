@@ -209,7 +209,6 @@ central/                   mooch-central (Go module mooch-central)
   internal/tui/           terminal dashboard
   internal/stats/         usage history, /analytics page, fair routing
 demo/                     cluster simulators for the analytics page
-frontend/                 static site for mooch.tech
 REQUIREMENTS.md           node requirements
 AGENTS.md                 rules for contributors and coding agents
 ```
@@ -219,7 +218,6 @@ More documents:
 - [`node/README.md`](node/README.md): node setup, config, logs, and troubleshooting.
 - [`central/README.md`](central/README.md): central flags, endpoints, and request flow.
 - [`demo/README.md`](demo/README.md): analytics demo scripts.
-- [`frontend/README.md`](frontend/README.md): the mooch.tech site.
 - [`REQUIREMENTS.md`](REQUIREMENTS.md): the node requirements.
 
 ## Development

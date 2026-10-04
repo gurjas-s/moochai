@@ -107,7 +107,6 @@ func TestNilStore(t *testing.T) {
 	s.Register(mux)
 	for path, want := range map[string]int{
 		"/api/analytics/summary": http.StatusServiceUnavailable,
-		"/leaderboard.json":      http.StatusServiceUnavailable,
 		"/analytics":             http.StatusOK,
 		"/analytics/chart.js":    http.StatusOK,
 	} {
@@ -140,17 +139,5 @@ func TestParseWindow(t *testing.T) {
 		if _, _, got := parseWindow(r); got != ok {
 			t.Fatalf("parseWindow(%q) = %v, want %v", q, got, ok)
 		}
-	}
-}
-
-func TestLeaderboardSkipsTakersAndSortsByServed(t *testing.T) {
-	sum := Summary{Nodes: []NodeUsage{
-		{Name: "laptop", Used: 40},
-		{Name: "a", Served: 10, UptimeMin: 135},
-		{Name: "b", Served: 25},
-	}}
-	entries := Leaderboard(sum)["entries"].([]LeaderboardEntry)
-	if len(entries) != 2 || entries[0].Alias != "b" || entries[1].Uptime != "2h15m0s" {
-		t.Fatalf("entries = %+v", entries)
 	}
 }

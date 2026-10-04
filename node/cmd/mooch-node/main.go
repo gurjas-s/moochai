@@ -134,6 +134,8 @@ func run(configPath, logMode, logFormat string) error {
 			return fmt.Errorf("get node hostname: %w", err)
 		}
 	}
+	// The dashboard shows this name as the computer that hosts the node.
+	slog.SetDefault(slog.Default().With("node_name", name))
 	tailscaleIP, err := identity.ResolveTailscaleIPv4(context.Background())
 	if err != nil {
 		return err
