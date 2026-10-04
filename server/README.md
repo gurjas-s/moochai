@@ -65,6 +65,22 @@ live nodes and models. Central relies on the tailnet to limit who can connect.
 
 ## Run
 
+Use the Makefile in `server/`:
+
+```sh
+make run          # build central and the node binaries, then listen on the Tailscale IPv4, port 8080
+make run-local    # build central, then listen on 127.0.0.1:8080 for local tests
+make run-plain    # like run, but print event lines without the dashboard
+make check        # format check, vet, and tests
+make help         # list all targets
+```
+
+Set `FLAGS` to give more flags to central, for example `make run FLAGS=-details`.
+Set `ADDR` or `LOCAL_ADDR` to change the listen address.
+`make run` builds the node binaries into `dist/`, so `/join` can serve them.
+
+You can also run the commands directly:
+
 ```sh
 ./build-nodes.sh                      # build node binaries into dist/ (for /join)
 go run ./cmd/mooch-central           # listen on the Tailscale IPv4, port 8080
@@ -81,13 +97,7 @@ go run ./cmd/mooch-central -addr 127.0.0.1:8080   # local use only
 | `-details` | `false` | Show the method, the path, and the status on REQUEST and RESPONSE lines. |
 | `-verbose` | `false` | Print plain log lines. Do not show the feed or the dashboard. |
 
-Run these checks before a push:
-
-```sh
-gofmt -l .            # output must be empty
-go vet ./...
-go test ./... -count=1
-```
+Run `make check` before a push.
 
 ## Endpoints
 
