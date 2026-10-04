@@ -139,10 +139,13 @@ Use these keys in the dashboard:
 
 | Key | Action |
 |-----|--------|
+| Mouse wheel or trackpad | Scroll the console three lines |
 | `↑` `↓` or `k` `j` | Scroll the console one line |
 | `PgUp` `PgDn` | Scroll the console one page |
 | `g` `G` | Go to the top or the bottom of the console |
 | `q` | Stop central |
+
+The dashboard reads the mouse for the wheel. To select text, hold `Option` (macOS) or `Shift` (most Linux terminals) while you drag.
 
 Use `-plain` to print the events as lines without the dashboard. The lines also show the nodes that join or leave.
 Use `-verbose` to print plain log lines.

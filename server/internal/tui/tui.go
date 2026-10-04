@@ -21,6 +21,7 @@ import (
 const (
 	maxLines   = 2000
 	staleAfter = 20 * time.Second
+	wheelLines = 3 // console lines for each step of the mouse wheel
 )
 
 var (
@@ -47,7 +48,8 @@ type UI struct {
 func New(ctx context.Context, reg *registry.Registry, addr string, tailnet bool) *UI {
 	u := &UI{lines: make(chan string, 1024)}
 	u.prog = tea.NewProgram(&model{reg: reg, addr: addr, tailnet: tailnet, now: time.Now()},
-		tea.WithAltScreen(), tea.WithContext(ctx))
+		// Mouse reports let the wheel and the trackpad scroll the console.
+		tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithContext(ctx))
 	// The buffer keeps Write from a block before Run starts.
 	go func() {
 		for l := range u.lines {
@@ -111,6 +113,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.scroll > 0 {
 			m.scroll++ // Keep the view still while the operator reads old lines.
+		}
+	case tea.MouseMsg:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.scroll += wheelLines
+		case tea.MouseButtonWheelDown:
+			m.scroll = max(0, m.scroll-wheelLines)
 		}
 	case tea.KeyMsg:
 		page := max(1, m.height/2)
@@ -347,7 +356,7 @@ func frame(line string, width int) (string, bool) {
 }
 
 func (m *model) footer() string {
-	keys := dimStyle.Render(" ↑/↓ scroll · pgup/pgdn page · g/G top/bottom · q quit")
+	keys := dimStyle.Render(" wheel or ↑/↓ scroll · pgup/pgdn page · g/G top/bottom · q quit")
 	if m.scroll > 0 {
 		keys += lipgloss.NewStyle().Foreground(yellow).Render(fmt.Sprintf("   ▼ %d lines below", m.scroll))
 	}

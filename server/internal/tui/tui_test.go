@@ -51,6 +51,17 @@ func TestView(t *testing.T) {
 	}
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
 
+	// The mouse wheel scrolls the console up and back down.
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	if m.scroll != wheelLines || strings.Contains(ansi.Strip(m.View()), "line 29") {
+		t.Fatalf("wheel up: scroll = %d", m.scroll)
+	}
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	if m.scroll != 0 {
+		t.Fatalf("wheel down: scroll = %d, want 0", m.scroll)
+	}
+
 	// Scroll up past the top. The view stops at the first line and keeps its height.
 	m.Update(tea.KeyMsg{Type: tea.KeyHome})
 	view = ansi.Strip(m.View())
