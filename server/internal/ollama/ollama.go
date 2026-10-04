@@ -56,7 +56,11 @@ func (h *Handler) tags(w http.ResponseWriter, _ *http.Request) {
 			Name: m.ID, Model: m.ID, ModifiedAt: time.Now().UTC(),
 			Digest: "peerai-" + m.ID,
 			Details: map[string]any{
-				"family": "peerai",
+				"format":             "gguf",
+				"family":             "peerai",
+				"families":           []string{"peerai"},
+				"parameter_size":     "unknown",
+				"quantization_level": "unknown",
 			},
 		})
 	}
@@ -75,15 +79,25 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 		ollamaError(w, http.StatusNotFound, fmt.Sprintf("model %q not found", req.Model))
 		return
 	}
-	info := map[string]any{"family": "peerai"}
+	info := map[string]any{
+		"format":             "gguf",
+		"family":             "peerai",
+		"families":           []string{"peerai"},
+		"parameter_size":     "unknown",
+		"quantization_level": "unknown",
+	}
 	if model.MaxModelLen > 0 {
 		info["parameter_size"] = "unknown"
 	}
 	result := map[string]any{
 		"modelfile": "", "parameters": "", "template": "", "details": info,
+		"capabilities": []string{"completion"},
 	}
 	if model.MaxModelLen > 0 {
-		result["model_info"] = map[string]any{"general.context_length": model.MaxModelLen}
+		result["model_info"] = map[string]any{
+			"general.architecture":      "peerai",
+			"peerai.context_length":    model.MaxModelLen,
+		}
 	}
 	respond.JSON(w, result)
 }
