@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -317,10 +318,19 @@ func wrap(line string, width int) []string {
 	return out
 }
 
+// divider matches the line that the feed prints before each request, for example "──── #1 ────".
+var divider = regexp.MustCompile(`^─+ (#\d+) ─+$`)
+
 // frame redraws a line of a message frame at width. The borders fill the width and close on the right.
-// A long text line keeps its important parts and cuts only the text part. The request number goes to the right end.
+// A long text line keeps its important parts and cuts only the text part.
+// A divider before a request also fills the width, with its request number in the centre.
 // frame reports false when line is not part of a frame.
 func frame(line string, width int) (string, bool) {
+	if m := divider.FindStringSubmatch(ansi.Strip(line)); m != nil {
+		label := " " + m[1] + " "
+		left := (width - ansi.StringWidth(label)) / 2
+		return dimStyle.Render(strings.Repeat("─", left) + label + strings.Repeat("─", max(0, width-left-ansi.StringWidth(label)))), true
+	}
 	plain := []rune(ansi.Strip(line))
 	if len(plain) <= 10 || !strings.ContainsRune("╭╰│", plain[10]) || width < 20 {
 		return "", false
@@ -334,16 +344,12 @@ func frame(line string, width int) (string, bool) {
 	case '╰':
 		return pad + colour + "╰" + strings.Repeat("─", width-12) + "╯\033[0m", true
 	}
-	keep, text, tail, number := line, "", "", ""
-	if parts := strings.Split(line, feed.Cut); len(parts) == 4 {
-		keep, text, tail, number = parts[0], parts[1], parts[2], parts[3]
+	keep, text, tail := line, "", ""
+	if parts := strings.Split(line, feed.Cut); len(parts) == 3 {
+		keep, text, tail = parts[0], parts[1], parts[2]
 	}
 	end := " " + colour + "│\033[0m"
-	limit := width - 2 // the content stops before " │"
-	if number != "" {
-		end = " " + number + end
-		limit = width - ansi.StringWidth(end)
-	}
+	limit := width - 2                                                  // the content stops before " │"
 	room := limit - ansi.StringWidth(keep) - ansi.StringWidth(tail) - 2 // 2 for the spaces around text
 	content := keep
 	for _, part := range []string{ansi.Truncate(text, max(0, room), "…"), tail} {

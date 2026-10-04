@@ -16,23 +16,24 @@ func TestFeedLines(t *testing.T) {
 	f.Joined(registry.Node{NodeID: "n1", Name: "gpu-box", TailscaleIP: "100.64.0.7",
 		Services: []registry.Service{{Models: []string{"a", "b"}}}})
 	f.Left(registry.Node{NodeID: "n2"})
-	id := f.Route("laptop", "a", "gpu-box")
-	f.Request(id, "laptop", "gpu-box", "POST", "/v1/chat/completions", "hi")
-	f.Response(id, "gpu-box", "laptop", 200, 1234*time.Millisecond, "")
+	f.Route("laptop", "a", "gpu-box")
+	f.Request("laptop", "gpu-box", "POST", "/v1/chat/completions", "hi")
+	f.Response("gpu-box", "laptop", 200, 1234*time.Millisecond, "")
 	want := `          ╭────────────────────────────────────────────────────────────
 09:05:00  │ JOIN     gpu-box 100.64.0.7 · models: a, b
           ╰────────────────────────────────────────────────────────────
           ╭────────────────────────────────────────────────────────────
 09:05:00  │ LEAVE    n2 no heartbeat
           ╰────────────────────────────────────────────────────────────
+───────────────────────────────── #1 ─────────────────────────────────
           ╭────────────────────────────────────────────────────────────
-09:05:00  │ MODEL    [ laptop → gpu-box ] a #1
+09:05:00  │ MODEL    [ laptop → gpu-box ] a
           ╰────────────────────────────────────────────────────────────
           ╭────────────────────────────────────────────────────────────
-09:05:00  │ REQUEST  [ laptop → gpu-box ] "hi" #1
+09:05:00  │ REQUEST  [ laptop → gpu-box ] "hi"
           ╰────────────────────────────────────────────────────────────
           ╭────────────────────────────────────────────────────────────
-09:05:00  │ RESPONSE [ gpu-box → laptop ] (no text) in 1.234s #1
+09:05:00  │ RESPONSE [ gpu-box → laptop ] (no text) in 1.234s
           ╰────────────────────────────────────────────────────────────
 `
 	if out.String() != want {
@@ -41,11 +42,11 @@ func TestFeedLines(t *testing.T) {
 	// Details adds the method, the path, and the status. An error status shows without Details.
 	out.Reset()
 	f.Details = true
-	f.Request(1, "a", "b", "POST", "/v1/chat/completions", "hi")
-	f.Response(1, "b", "a", 200, 0, "")
+	f.Request("a", "b", "POST", "/v1/chat/completions", "hi")
+	f.Response("b", "a", 200, 0, "")
 	f.Details = false
-	f.Response(1, "b", "a", 502, 0, "")
-	for _, want := range []string{`[ a → b ] POST "hi" /v1/chat/completions #1`, "[ b → a ] 200 (no text)", "[ b → a ] 502 (no text)"} {
+	f.Response("b", "a", 502, 0, "")
+	for _, want := range []string{`[ a → b ] POST "hi" /v1/chat/completions`, "[ b → a ] 200 (no text)", "[ b → a ] 502 (no text)"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("feed misses %q:\n%s", want, out.String())
 		}
@@ -62,7 +63,8 @@ func TestFeedLines(t *testing.T) {
 
 	var nilFeed *Feed
 	nilFeed.Joined(registry.Node{}) // A nil feed must not panic.
-	nilFeed.Response(nilFeed.Route("", "", ""), "", "", 0, 0, "")
+	nilFeed.Route("", "", "")
+	nilFeed.Response("", "", 0, 0, "")
 }
 
 func TestResponsePreview(t *testing.T) {

@@ -31,12 +31,16 @@ const (
 
 const previewLen = 120
 
-// Cut separates the four parts of a framed line: the kept start, the text that the dashboard can cut,
-// the kept end, and the request number that the dashboard puts at the right end.
+// Cut separates the three parts of a framed line: the kept start, the text that the dashboard can cut,
+// and the kept end.
 const Cut = "\x1f"
 
 // frameWidth is the length of the top and bottom borders of a message frame.
-const frameWidth = 60
+// dividerWidth is the length of the divider before each request. The dashboard draws both at its own width.
+const (
+	frameWidth   = 60
+	dividerWidth = 71
+)
 
 // Feed writes one line for each cluster event. A nil Feed writes nothing.
 type Feed struct {
@@ -115,7 +119,7 @@ func (f *Feed) Joined(n registry.Node) {
 		return
 	}
 	f.message(green, "JOIN", f.paint(bold+cyan, Name(n))+" "+f.paint(grey, n.TailscaleIP),
-		f.paint(grey, "· models: ")+f.paint(magenta, strings.Join(Models(n), ", ")), "", 0)
+		f.paint(grey, "· models: ")+f.paint(magenta, strings.Join(Models(n), ", ")), "")
 }
 
 // Left prints a frame when a node expires. The dashboard feed does not print it.
@@ -123,27 +127,28 @@ func (f *Feed) Left(n registry.Node) {
 	if f == nil || !f.members {
 		return
 	}
-	f.message(red, "LEAVE", f.paint(bold+cyan, Name(n)), f.paint(grey, "no heartbeat"), "", 0)
+	f.message(red, "LEAVE", f.paint(bold+cyan, Name(n)), f.paint(grey, "no heartbeat"), "")
 }
 
-// Route prints the selected model and the node that gets the request in a MODEL frame.
-// Route returns a request number for Request and Response.
-func (f *Feed) Route(from, model, to string) int {
+// Route starts a request: a divider with the request number, and then a MODEL frame
+// with the selected model and the node that gets the request.
+func (f *Feed) Route(from, model, to string) {
 	if f == nil {
-		return 0
+		return
 	}
 	f.mu.Lock()
 	f.reqID++
 	id := f.reqID
 	f.mu.Unlock()
-	f.message(yellow, "MODEL", f.chat(yellow, from, to)+" "+f.paint(bold+magenta, model), "", "", id)
-	return id
+	label := fmt.Sprintf(" #%d ", id)
+	side := strings.Repeat("─", (dividerWidth-utf8.RuneCountInString(label))/2)
+	f.printf("%s\n%s", f.paint(grey, side+label+side),
+		f.frame(yellow, "MODEL", f.chat(yellow, from, to)+" "+f.paint(bold+magenta, model), "", ""))
 }
 
 // Request prints the direction and the prompt of the forwarded request in a frame.
 // With Details, the line also shows the method and the path.
-// The request number at the right end connects the request to its response.
-func (f *Feed) Request(id int, from, to, method, path, preview string) {
+func (f *Feed) Request(from, to, method, path, preview string) {
 	if f == nil {
 		return
 	}
@@ -152,12 +157,12 @@ func (f *Feed) Request(id int, from, to, method, path, preview string) {
 		keep += " " + f.paint(bold+blue, method)
 		text += " " + f.paint(grey, path)
 	}
-	f.message(blue, "REQUEST", keep, text, "", id)
+	f.message(blue, "REQUEST", keep, text, "")
 }
 
 // Response prints the direction, the answer, and the duration in a frame.
 // The line shows the status with Details, or when the status is an error.
-func (f *Feed) Response(id int, from, to string, status int, d time.Duration, preview string) {
+func (f *Feed) Response(from, to string, status int, d time.Duration, preview string) {
 	if f == nil {
 		return
 	}
@@ -169,7 +174,7 @@ func (f *Feed) Response(id int, from, to string, status int, d time.Duration, pr
 	if f.Details || status >= 400 {
 		keep += " " + f.paint(bold+code, fmt.Sprint(status))
 	}
-	f.message(code, "RESPONSE", keep, f.text(preview), f.paint(grey, "in "+d.Round(time.Millisecond).String()), id)
+	f.message(code, "RESPONSE", keep, f.text(preview), f.paint(grey, "in "+d.Round(time.Millisecond).String()))
 }
 
 // chat returns the direction of a message, for example "[ laptop → gpu-box ]".
@@ -200,27 +205,25 @@ func (f *Feed) event(code, tag, format string, args ...any) {
 	f.printf("%s  %s %s\n", f.paint(dim, f.now().Format("15:04:05")), f.paint(bold+code, fmt.Sprintf("%-5s", tag)), msg)
 }
 
-// message prints a route or a message between two nodes in a frame: a top border, the line on a rail, and a bottom border.
-// The frame has the colour of the tag. The three lines go out in one write, so other events cannot split the frame.
-// keep and tail are important. The dashboard cuts only text when the line is too long,
-// and puts the request number id at the right end. An id of 0 shows no number.
-func (f *Feed) message(code, tag, keep, text, tail string, id int) {
+// message prints a frame. The three lines go out in one write, so other events cannot split the frame.
+func (f *Feed) message(code, tag, keep, text, tail string) {
 	if f == nil {
 		return
 	}
-	number := ""
-	if id > 0 {
-		number = f.paint(grey, fmt.Sprintf("#%d", id))
-	}
-	parts := []string{keep, text, tail, number}
+	f.printf("%s", f.frame(code, tag, keep, text, tail))
+}
+
+// frame returns a frame in the colour of the tag: a top border, the line on a rail, and a bottom border.
+// keep and tail are important. The dashboard cuts only text when the line is too long.
+func (f *Feed) frame(code, tag, keep, text, tail string) string {
+	parts := []string{keep, text, tail}
 	if f.sep != Cut {
 		parts = slices.DeleteFunc(parts, func(p string) bool { return p == "" })
 	}
-	msg := strings.Join(parts, f.sep)
 	pad, rule := strings.Repeat(" ", 10), strings.Repeat("─", frameWidth)
-	f.printf("%s%s\n%s  %s %s %s\n%s%s\n",
+	return fmt.Sprintf("%s%s\n%s  %s %s %s\n%s%s\n",
 		pad, f.paint(code, "╭"+rule),
-		f.paint(dim, f.now().Format("15:04:05")), f.paint(code, "│"), f.paint(bold+code, fmt.Sprintf("%-8s", tag)), msg,
+		f.paint(dim, f.now().Format("15:04:05")), f.paint(code, "│"), f.paint(bold+code, fmt.Sprintf("%-8s", tag)), strings.Join(parts, f.sep),
 		pad, f.paint(code, "╰"+rule))
 }
 

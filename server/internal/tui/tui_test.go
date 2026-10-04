@@ -87,17 +87,17 @@ func TestWrap(t *testing.T) {
 		t.Fatalf("border = %q", got)
 	}
 
-	// A long framed line cuts only the text and keeps the direction, the path, and the status.
-	line := "12:00:00  │ RESP  [ a → b ] 200" + feed.Cut + `"` + strings.Repeat("x", 80) + `"` + feed.Cut + "in 1s" + feed.Cut + "#1"
+	// A long framed line cuts only the text and keeps the direction and the status.
+	line := "12:00:00  │ RESPONSE [ a → b ] 200" + feed.Cut + `"` + strings.Repeat("x", 80) + `"` + feed.Cut + "in 1s"
 	got = wrap(line, 60)
-	wantLine := "12:00:00  │ RESP  [ a → b ] 200 \"" + strings.Repeat("x", 15) + "… in 1s #1 │"
+	wantLine := "12:00:00  │ RESPONSE [ a → b ] 200 \"" + strings.Repeat("x", 15) + "… in 1s │"
 	if len(got) != 1 || ansi.Strip(got[0]) != wantLine || ansi.StringWidth(got[0]) != 60 {
-		t.Fatalf("framed line =\n%q\nwant\n%q", got, wantLine)
+		t.Fatalf("framed line =\n%q\nwant\n%q", ansi.Strip(got[0]), wantLine)
 	}
 
-	// A short framed line puts the request number at the right end.
-	got = wrap("12:00:00  │ REQ   [ a → b ]"+feed.Cut+`"hi"`+feed.Cut+feed.Cut+"#1", 40)
-	if want := "12:00:00  │ REQ   [ a → b ] \"hi\"    #1 │"; len(got) != 1 || ansi.Strip(got[0]) != want || ansi.StringWidth(got[0]) != 40 {
-		t.Fatalf("framed line =\n%q\nwant\n%q", ansi.Strip(got[0]), want)
+	// A divider fills the width with the request number in the centre.
+	got = wrap(strings.Repeat("─", 33)+" #12 "+strings.Repeat("─", 33), 21)
+	if want := strings.Repeat("─", 8) + " #12 " + strings.Repeat("─", 8); len(got) != 1 || ansi.Strip(got[0]) != want {
+		t.Fatalf("divider = %q, want %q", ansi.Strip(got[0]), want)
 	}
 }
