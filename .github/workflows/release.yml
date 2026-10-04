@@ -38,12 +38,10 @@ jobs:
             node/go.sum
 
       - name: Test central
-        working-directory: central
-        run: go test ./... -count=1
+        run: make -C central check
 
       - name: Test node
-        working-directory: node
-        run: go test ./... -count=1
+        run: make -C node check
 
       - name: Build binaries
         env:
@@ -53,10 +51,11 @@ jobs:
         run: |
           set -eu
           mkdir -p release
-          (cd central && go build -trimpath \
-            -o "../release/mooch-central-${GOOS}-${GOARCH}" ./cmd/mooch-central)
-          (cd node && go build -trimpath \
-            -o "../release/mooch-node-${GOOS}-${GOARCH}" ./cmd/mooch-node)
+          make -C central build
+          cp "central/bin/mooch-central" \
+            "release/mooch-central-${GOOS}-${GOARCH}"
+          cp "central/dist/mooch-node-${GOOS}-${GOARCH}" \
+            "release/mooch-node-${GOOS}-${GOARCH}"
           chmod +x release/*
 
       - name: Upload build artifacts
