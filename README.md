@@ -235,6 +235,18 @@ go test ./... -count=1
 Each push to a shared branch needs a GitHub issue and a pull request.
 Read [`AGENTS.md`](AGENTS.md) for the full workflow and the writing rules.
 
+## Releases
+
+Push a tag with the `v` prefix to build and publish release binaries:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow tests both Go modules and publishes `mooch-central` and
+`mooch-node` binaries for Linux and macOS on amd64 and arm64.
+
 ## Security
 
 Central has no authentication.
