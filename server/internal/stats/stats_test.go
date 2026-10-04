@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -108,12 +109,28 @@ func TestNilStore(t *testing.T) {
 		"/api/analytics/summary": http.StatusServiceUnavailable,
 		"/leaderboard.json":      http.StatusServiceUnavailable,
 		"/analytics":             http.StatusOK,
+		"/analytics/chart.js":    http.StatusOK,
 	} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 		if rec.Code != want {
 			t.Fatalf("GET %s = %d, want %d", path, rec.Code, want)
 		}
+	}
+}
+
+func TestTailKeepsTheEndOfALongStream(t *testing.T) {
+	var tail Tail
+	chunk := []byte("data: {\"choices\":[{\"delta\":{\"content\":\"" + strings.Repeat("x", 500) + "\"}}]}\n\n")
+	for range 1000 { // about 530 KB, much more than tailSize
+		_, _ = tail.Write(chunk)
+	}
+	_, _ = tail.Write([]byte("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":1200}}\n\ndata: [DONE]\n\n"))
+	if n := len(tail.Bytes()); n != tailSize {
+		t.Fatalf("tail keeps %d bytes, want %d", n, tailSize)
+	}
+	if p, c := Usage(tail.Bytes()); p == nil || *p != 9 || *c != 1200 {
+		t.Fatal("usage at the end of a long stream was not found")
 	}
 }
 

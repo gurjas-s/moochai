@@ -122,7 +122,7 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
 		d := time.Since(start)
 		h.feed.Response(to, from, rec.status, d, feed.ResponsePreview(rec.body.Bytes()))
 		if h.Record != nil {
-			prompt, completion := stats.Usage(rec.body.Bytes())
+			prompt, completion := stats.Usage(rec.tail.Bytes())
 			h.Record(stats.Request{Time: start, Requester: from, Node: to, Model: req.Model, Path: path,
 				Status: rec.status, Duration: d, BytesOut: rec.bytes, PromptTokens: prompt, CompletionTokens: completion})
 		}
@@ -147,17 +147,19 @@ func Requester(reg *registry.Registry, r *http.Request) string {
 // maxPreviewBody limits the response bytes that the feed keeps for its preview.
 const maxPreviewBody = 64 << 10
 
-// statusRecorder keeps the response status, the byte count, and the start of the body.
-// Unwrap lets the proxy flush stream chunks.
+// statusRecorder keeps the response status, the byte count, the start of the body for the feed,
+// and the end of the body for the token usage. Unwrap lets the proxy flush stream chunks.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
 	bytes  int64
 	body   bytes.Buffer
+	tail   stats.Tail
 }
 
 func (s *statusRecorder) Write(b []byte) (int, error) {
 	s.bytes += int64(len(b))
+	_, _ = s.tail.Write(b)
 	if room := maxPreviewBody - s.body.Len(); room > 0 {
 		s.body.Write(b[:min(len(b), room)])
 	}

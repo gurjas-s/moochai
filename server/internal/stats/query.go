@@ -16,17 +16,21 @@ import (
 //go:embed page.html
 var page string
 
-// window is a time range that the analytics accept. bucket is the width of one point in a time series.
+// chartJS is Chart.js 4.5.1 (MIT). Central serves it, so the page works on a tailnet without internet access.
+//
+//go:embed chart.umd.min.js
+var chartJS string
+
+// window is a time range that the analytics accept.
 type window struct {
-	span   time.Duration
-	bucket time.Duration
+	span time.Duration
 }
 
 var windows = map[string]window{
-	"1h":  {time.Hour, 5 * time.Minute},
-	"24h": {24 * time.Hour, time.Hour},
-	"7d":  {7 * 24 * time.Hour, 6 * time.Hour},
-	"30d": {30 * 24 * time.Hour, 24 * time.Hour},
+	"1h":  {time.Hour},
+	"24h": {24 * time.Hour},
+	"7d":  {7 * 24 * time.Hour},
+	"30d": {30 * 24 * time.Hour},
 }
 
 // parseWindow reads the window query parameter. An empty value means 24h.
@@ -45,8 +49,12 @@ func (s *Store) Register(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write([]byte(page))
 	})
+	mux.HandleFunc("GET /analytics/chart.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "max-age=86400")
+		_, _ = w.Write([]byte(chartJS))
+	})
 	mux.HandleFunc("GET /api/analytics/summary", s.handle(s.summary))
-	mux.HandleFunc("GET /api/analytics/timeseries", s.handle(s.timeseries))
 	mux.HandleFunc("GET /api/analytics/models", s.handle(s.models))
 	mux.HandleFunc("GET /leaderboard.json", s.handleLeaderboard)
 }
@@ -75,29 +83,38 @@ func (s *Store) handle(q query) http.HandlerFunc {
 }
 
 // NodeUsage is the give and take of one participant. A participant is a node, or a tool at an IP that is not a node.
+// Tokens come from the usage field of the backend response. A response without usage counts zero tokens.
 type NodeUsage struct {
-	Name         string  `json:"name"`
-	Served       int64   `json:"served"`
-	ServedS      float64 `json:"served_s"`
-	Used         int64   `json:"used"`
-	UsedS        float64 `json:"used_s"`
-	BalanceS     float64 `json:"balance_s"`
-	TokensServed int64   `json:"tokens_served"`
-	OKPct        float64 `json:"ok_pct"`
-	P50MS        float64 `json:"p50_ms"`
-	UptimeMin    int64   `json:"uptime_min"`
-	UptimePct    float64 `json:"uptime_pct"`
-	Models       int64   `json:"models"`
+	Name          string  `json:"name"`
+	Served        int64   `json:"served"`
+	Used          int64   `json:"used"`
+	TokensServed  int64   `json:"tokens_served"`
+	TokensUsed    int64   `json:"tokens_used"`
+	BalanceTokens int64   `json:"balance_tokens"`
+	OKPct         float64 `json:"ok_pct"`
+	P50MS         float64 `json:"p50_ms"`
+	UptimeMin     int64   `json:"uptime_min"`
+	UptimePct     float64 `json:"uptime_pct"`
+	Models        int64   `json:"models"`
 }
 
 type Summary struct {
 	Window    string      `json:"window"`
 	UpdatedAt time.Time   `json:"updated_at"`
 	Requests  int64       `json:"requests"`
-	ComputeS  float64     `json:"compute_s"`
 	Tokens    int64       `json:"tokens"`
+	Live      Live        `json:"live"`
 	Nodes     []NodeUsage `json:"nodes"`
 }
+
+// Live is the request rate of the last liveSpan, and the number of request rows in the database.
+type Live struct {
+	RequestsPerS float64 `json:"requests_per_s"`
+	TokensPerS   float64 `json:"tokens_per_s"`
+	RowsStored   int64   `json:"rows_stored"`
+}
+
+const liveSpan = 10 * time.Second
 
 func (s *Store) summary(ctx context.Context, name string, w window) (any, error) {
 	since := time.Now().Add(-w.span)
@@ -110,14 +127,13 @@ func (s *Store) summary(ctx context.Context, name string, w window) (any, error)
 	}
 	// The hourly aggregate gives the totals. Its first bucket can start up to one hour before since.
 	rows, _ := s.pool.Query(ctx, `
-		SELECT node, sum(requests), sum(ok), sum(duration_ms) / 1000, sum(tokens), count(DISTINCT model)
+		SELECT node, sum(requests), sum(ok), sum(tokens), count(DISTINCT model)
 		FROM usage_hourly WHERE bucket >= time_bucket(INTERVAL '1 hour', $1::timestamptz) GROUP BY node`, since)
 	var node string
 	var n, ok, tokens, models int64
-	var secs float64
-	if _, err := pgx.ForEachRow(rows, []any{&node, &n, &ok, &secs, &tokens, &models}, func() error {
+	if _, err := pgx.ForEachRow(rows, []any{&node, &n, &ok, &tokens, &models}, func() error {
 		u := row(node)
-		u.Served, u.ServedS, u.TokensServed, u.Models = n, secs, tokens, models
+		u.Served, u.TokensServed, u.Models = n, tokens, models
 		if n > 0 {
 			u.OKPct = round(float64(ok) * 100 / float64(n))
 		}
@@ -126,11 +142,11 @@ func (s *Store) summary(ctx context.Context, name string, w window) (any, error)
 		return nil, err
 	}
 	rows, _ = s.pool.Query(ctx, `
-		SELECT requester, sum(requests), sum(duration_ms) / 1000
+		SELECT requester, sum(requests), sum(tokens)
 		FROM usage_hourly WHERE bucket >= time_bucket(INTERVAL '1 hour', $1::timestamptz) GROUP BY requester`, since)
-	if _, err := pgx.ForEachRow(rows, []any{&node, &n, &secs}, func() error {
+	if _, err := pgx.ForEachRow(rows, []any{&node, &n, &tokens}, func() error {
 		u := row(node)
-		u.Used, u.UsedS = n, secs
+		u.Used, u.TokensUsed = n, tokens
 		return nil
 	}); err != nil {
 		return nil, err
@@ -160,71 +176,50 @@ func (s *Store) summary(ctx context.Context, name string, w window) (any, error)
 		return nil, err
 	}
 
-	sum := Summary{Window: name, UpdatedAt: time.Now().UTC(), Nodes: []NodeUsage{}}
+	// approximate_row_count reads the chunk statistics, so it stays fast for a table with millions of rows.
+	var live Live
+	var n10, tok10 int64
+	if err := s.pool.QueryRow(ctx, `
+		SELECT count(*), coalesce(sum(coalesce(prompt_tokens, 0) + coalesce(completion_tokens, 0)), 0),
+		       approximate_row_count('requests')
+		FROM requests WHERE time > now() - $1::interval`, liveSpan).Scan(&n10, &tok10, &live.RowsStored); err != nil {
+		return nil, err
+	}
+	live.RequestsPerS = round(float64(n10) / liveSpan.Seconds())
+	live.TokensPerS = round(float64(tok10) / liveSpan.Seconds())
+
+	sum := Summary{Window: name, UpdatedAt: time.Now().UTC(), Live: live, Nodes: []NodeUsage{}}
 	for _, u := range by {
-		u.ServedS, u.UsedS = round(u.ServedS), round(u.UsedS)
-		u.BalanceS = round(u.ServedS - u.UsedS)
+		u.BalanceTokens = u.TokensServed - u.TokensUsed
 		sum.Requests += u.Served
-		sum.ComputeS += u.ServedS
 		sum.Tokens += u.TokensServed
 		sum.Nodes = append(sum.Nodes, *u)
 	}
-	sum.ComputeS = round(sum.ComputeS)
 	sort.Slice(sum.Nodes, func(i, j int) bool {
-		if sum.Nodes[i].BalanceS != sum.Nodes[j].BalanceS {
-			return sum.Nodes[i].BalanceS > sum.Nodes[j].BalanceS
+		if sum.Nodes[i].BalanceTokens != sum.Nodes[j].BalanceTokens {
+			return sum.Nodes[i].BalanceTokens > sum.Nodes[j].BalanceTokens
 		}
 		return sum.Nodes[i].Name < sum.Nodes[j].Name
 	})
 	return sum, nil
 }
 
-// Point is the work that one node served in one time bucket.
-type Point struct {
-	Time     time.Time `json:"time"`
-	Node     string    `json:"node"`
-	Requests int64     `json:"requests"`
-	ComputeS float64   `json:"compute_s"`
-}
-
-func (s *Store) timeseries(ctx context.Context, name string, w window) (any, error) {
-	since := time.Now().Add(-w.span)
-	// Buckets of one hour or more come from the aggregate. Smaller buckets need the raw rows.
-	sql := `SELECT time_bucket($2::interval, bucket) AS b, node, sum(requests), sum(duration_ms) / 1000
-		FROM usage_hourly WHERE bucket >= $1 GROUP BY b, node ORDER BY b, node`
-	if w.bucket < time.Hour {
-		sql = `SELECT time_bucket($2::interval, time) AS b, node, count(*), sum(duration_ms) / 1000
-			FROM requests WHERE time >= $1 GROUP BY b, node ORDER BY b, node`
-	}
-	rows, _ := s.pool.Query(ctx, sql, since, w.bucket)
-	points := []Point{}
-	var p Point
-	_, err := pgx.ForEachRow(rows, []any{&p.Time, &p.Node, &p.Requests, &p.ComputeS}, func() error {
-		p.ComputeS = round(p.ComputeS)
-		points = append(points, p)
-		return nil
-	})
-	return map[string]any{"window": name, "bucket_s": w.bucket.Seconds(), "points": points}, err
-}
-
 // ModelUsage is the use of one model across the cluster.
 type ModelUsage struct {
-	Model    string  `json:"model"`
-	Requests int64   `json:"requests"`
-	ComputeS float64 `json:"compute_s"`
-	Tokens   int64   `json:"tokens"`
-	Nodes    int64   `json:"nodes"`
+	Model    string `json:"model"`
+	Requests int64  `json:"requests"`
+	Tokens   int64  `json:"tokens"`
+	Nodes    int64  `json:"nodes"`
 }
 
 func (s *Store) models(ctx context.Context, name string, w window) (any, error) {
 	rows, _ := s.pool.Query(ctx, `
-		SELECT model, sum(requests), sum(duration_ms) / 1000, sum(tokens), count(DISTINCT node)
+		SELECT model, sum(requests), sum(tokens), count(DISTINCT node)
 		FROM usage_hourly WHERE bucket >= time_bucket(INTERVAL '1 hour', $1::timestamptz)
 		GROUP BY model ORDER BY sum(requests) DESC`, time.Now().Add(-w.span))
 	out := []ModelUsage{}
 	var m ModelUsage
-	_, err := pgx.ForEachRow(rows, []any{&m.Model, &m.Requests, &m.ComputeS, &m.Tokens, &m.Nodes}, func() error {
-		m.ComputeS = round(m.ComputeS)
+	_, err := pgx.ForEachRow(rows, []any{&m.Model, &m.Requests, &m.Tokens, &m.Nodes}, func() error {
 		out = append(out, m)
 		return nil
 	})

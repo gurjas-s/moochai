@@ -117,11 +117,14 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		ollamaError(w, http.StatusNotFound, fmt.Sprintf("model %q not found", req.Model))
 		return
 	}
+	var tail stats.Tail // the end of the node response, for the token usage
 	if h.Record != nil {
 		start, status := time.Now(), http.StatusOK
 		defer func() {
+			prompt, completion := stats.Usage(tail.Bytes())
 			h.Record(stats.Request{Time: start, Requester: router.Requester(h.reg, r), Node: feed.Name(node),
-				Model: req.Model, Path: r.URL.Path, Status: status, Duration: time.Since(start)})
+				Model: req.Model, Path: r.URL.Path, Status: status, Duration: time.Since(start),
+				PromptTokens: prompt, CompletionTokens: completion})
 		}()
 		w = statusWriter{w, &status}
 	}
@@ -143,16 +146,17 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	nodeBody := io.TeeReader(resp.Body, &tail)
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
+		_, _ = io.Copy(w, nodeBody)
 		return
 	}
 	if req.Stream {
-		h.stream(w, resp.Body, req.Model)
+		h.stream(w, nodeBody, req.Model)
 		return
 	}
-	h.complete(w, resp.Body, req.Model)
+	h.complete(w, nodeBody, req.Model)
 }
 
 type chatRequest struct {
@@ -165,6 +169,10 @@ type chatRequest struct {
 
 func openAIRequest(req chatRequest) map[string]any {
 	out := map[string]any{"model": req.Model, "messages": req.Messages, "stream": req.Stream}
+	if req.Stream {
+		// Ask for a last chunk with the token usage. The stream loop skips that chunk, because it has no choices.
+		out["stream_options"] = map[string]any{"include_usage": true}
+	}
 	if len(req.Tools) > 0 {
 		out["tools"] = req.Tools
 	}

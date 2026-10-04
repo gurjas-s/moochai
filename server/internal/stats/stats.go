@@ -25,8 +25,8 @@ import (
 var schema string
 
 const (
-	queueSize  = 1024
-	batchSize  = 200
+	queueSize  = 16384 // about 8 s of rows at 2000 requests per second
+	batchSize  = 1000
 	flushEvery = time.Second
 	loadEvery  = 15 * time.Second
 )
@@ -284,6 +284,24 @@ func (s *Store) refreshLoad(ctx context.Context) error {
 	return nil
 }
 
+// tailSize is the part of a response that Tail keeps. The usage field is at the end of a response.
+const tailSize = 64 << 10
+
+// Tail keeps the last tailSize bytes written to it, so Usage can read the last event of a long stream.
+type Tail struct{ buf []byte }
+
+func (t *Tail) Write(p []byte) (int, error) {
+	t.buf = append(t.buf, p...)
+	// Cut only at twice the size, so a stream of small chunks does not copy the buffer on each write.
+	if len(t.buf) > 2*tailSize {
+		t.buf = append([]byte(nil), t.buf[len(t.buf)-tailSize:]...)
+	}
+	return len(p), nil
+}
+
+// Bytes returns the last tailSize bytes.
+func (t *Tail) Bytes() []byte { return t.buf[max(0, len(t.buf)-tailSize):] }
+
 // Usage reads the token counts of an OpenAI response body: plain JSON, or the last
 // server-sent event that has a usage field. It returns nil values when the body has no usage.
 func Usage(body []byte) (prompt, completion *int) {
@@ -294,7 +312,8 @@ func Usage(body []byte) (prompt, completion *int) {
 		} `json:"usage"`
 	}
 	chunks := [][]byte{body}
-	if bytes.HasPrefix(bytes.TrimSpace(body), []byte("data:")) {
+	// A Tail can start in the middle of an event, so look for an event start on any line.
+	if bytes.HasPrefix(bytes.TrimSpace(body), []byte("data:")) || bytes.Contains(body, []byte("\ndata:")) {
 		chunks = nil
 		for _, line := range bytes.Split(body, []byte("\n")) {
 			if data, ok := bytes.CutPrefix(bytes.TrimSpace(line), []byte("data:")); ok {

@@ -49,15 +49,14 @@ func TestDBSummaryAndBalance(t *testing.T) {
 	s := openTestDB(t)
 	ctx := context.Background()
 	now := time.Now().Add(-10 * time.Minute)
-	req := func(from, to string, secs int, status int) Request {
+	req := func(from, to string, secs, status, prompt, completion int) Request {
 		return Request{Time: now, Requester: from, Node: to, Model: "qwen", Path: "/v1/chat/completions",
-			Status: status, Duration: time.Duration(secs) * time.Second}
+			Status: status, Duration: time.Duration(secs) * time.Second, PromptTokens: &prompt, CompletionTokens: &completion}
 	}
-	tokens := 10
-	withTokens := req("laptop", "gpu-a", 2, 200)
-	withTokens.PromptTokens, withTokens.CompletionTokens = &tokens, &tokens
-	reqs := []Request{withTokens, req("laptop", "gpu-a", 2, 200), req("laptop", "gpu-a", 2, 502),
-		req("gpu-b", "gpu-a", 1, 200), req("gpu-a", "gpu-b", 4, 200)}
+	noUsage := req("laptop", "gpu-a", 2, 200, 0, 0)
+	noUsage.PromptTokens, noUsage.CompletionTokens = nil, nil
+	reqs := []Request{req("laptop", "gpu-a", 2, 200, 10, 90), noUsage, req("laptop", "gpu-a", 2, 502, 0, 0),
+		req("gpu-b", "gpu-a", 1, 200, 20, 30), req("gpu-a", "gpu-b", 4, 200, 100, 200)}
 	beats := []beat{{now, "gpu-a", 1}, {now.Add(time.Minute), "gpu-a", 1}, {now.Add(2 * time.Minute), "gpu-a", 1}}
 	if err := s.copy(ctx, reqs, beats); err != nil {
 		t.Fatal(err)
@@ -73,30 +72,25 @@ func TestDBSummaryAndBalance(t *testing.T) {
 		by[n.Name] = n
 	}
 	a, b, laptop := by["gpu-a"], by["gpu-b"], by["laptop"]
-	if a.Served != 4 || a.ServedS != 7 || a.UsedS != 4 || a.BalanceS != 3 || a.OKPct != 75 || a.TokensServed != 20 {
+	// gpu-a serves 100 + 0 + 0 + 50 tokens and uses 300 tokens.
+	if a.Served != 4 || a.TokensServed != 150 || a.Used != 1 || a.TokensUsed != 300 || a.BalanceTokens != -150 || a.OKPct != 75 {
 		t.Fatalf("gpu-a = %+v", a)
 	}
-	if b.BalanceS != 3 || laptop.BalanceS != -6 || laptop.Used != 3 {
+	if b.BalanceTokens != 250 || laptop.BalanceTokens != -100 || laptop.Used != 3 || laptop.TokensUsed != 100 {
 		t.Fatalf("gpu-b = %+v, laptop = %+v", b, laptop)
 	}
 	if a.UptimeMin != 3 || a.P50MS != 2000 {
 		t.Fatalf("gpu-a uptime %d min, p50 %v ms", a.UptimeMin, a.P50MS)
 	}
-	if sum.Requests != 5 || sum.ComputeS != 11 || sum.Nodes[len(sum.Nodes)-1].Name != "laptop" {
+	if sum.Requests != 5 || sum.Tokens != 450 || sum.Nodes[0].Name != "gpu-b" {
 		t.Fatalf("summary = %+v", sum)
 	}
 
-	if _, err := s.timeseries(ctx, "1h", windows["1h"]); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.timeseries(ctx, "24h", windows["24h"]); err != nil {
-		t.Fatal(err)
-	}
 	m, err := s.models(ctx, "24h", windows["24h"])
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := m.(map[string]any)["models"].([]ModelUsage); len(got) != 1 || got[0].Requests != 5 || got[0].Nodes != 2 {
+	if got := m.(map[string]any)["models"].([]ModelUsage); len(got) != 1 || got[0].Requests != 5 || got[0].Tokens != 450 || got[0].Nodes != 2 {
 		t.Fatalf("models = %+v", got)
 	}
 
@@ -109,7 +103,7 @@ func TestDBSummaryAndBalance(t *testing.T) {
 
 	mux := http.NewServeMux()
 	s.Register(mux)
-	for _, path := range []string{"/api/analytics/summary?window=7d", "/leaderboard.json", "/api/analytics/timeseries?window=30d"} {
+	for _, path := range []string{"/api/analytics/summary?window=7d", "/leaderboard.json", "/api/analytics/models?window=30d"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 		if rec.Code != http.StatusOK {
