@@ -71,6 +71,7 @@ Use the Makefile in `server/`:
 ```sh
 make build        # build central and the node binaries into dist/, so /join can serve them
 make start        # build central, start TimescaleDB, then start central with analytics
+make start ANALYTICS=0  # start central without analytics; Docker is not necessary
 make check        # format check, vet, and tests
 make help         # list all targets
 ```
@@ -107,7 +108,9 @@ The fake node serves the model `qwen` and waits `<delay>` seconds for each reque
 ## Analytics
 
 Central can keep a history of requests and heartbeats in TimescaleDB, the open-source database of Tiger Data.
-Without a database, central works as before. The analytics routes then return 503.
+Analytics is optional. Without a database, central works as before and does not need Docker.
+The analytics routes then return 503, and central uses round-robin routing.
+Use `make start ANALYTICS=0`, or start central without `MOOCH_DB_URL`.
 
 ```sh
 make db-up        # start TimescaleDB in Docker on 127.0.0.1:5432
