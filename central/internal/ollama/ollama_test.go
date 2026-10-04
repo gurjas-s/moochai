@@ -60,6 +60,7 @@ func TestChatTranslatesNonStreamingResponse(t *testing.T) {
 			"choices": []any{map[string]any{
 				"message": map[string]any{"role": "assistant", "content": "hello"},
 			}},
+			"usage": map[string]any{"prompt_tokens": 42, "completion_tokens": 7},
 		})
 	}))
 	t.Cleanup(node.Close)
@@ -81,7 +82,10 @@ func TestChatTranslatesNonStreamingResponse(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"content":"hello"`) {
+	if resp.StatusCode != http.StatusOK ||
+		!strings.Contains(string(body), `"content":"hello"`) ||
+		!strings.Contains(string(body), `"prompt_eval_count":42`) ||
+		!strings.Contains(string(body), `"eval_count":7`) {
 		t.Fatalf("chat = %d %s", resp.StatusCode, body)
 	}
 }
@@ -115,7 +119,10 @@ func TestChatStreamRecordsRequest(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), `"content":"hel"`) || !strings.Contains(string(body), `"done":true`) {
+	if !strings.Contains(string(body), `"content":"hel"`) ||
+		!strings.Contains(string(body), `"done":true`) ||
+		!strings.Contains(string(body), `"prompt_eval_count":4`) ||
+		!strings.Contains(string(body), `"eval_count":2`) {
 		t.Fatalf("stream = %s", body)
 	}
 	select {

@@ -195,6 +195,7 @@ func (h *Handler) stream(w http.ResponseWriter, body io.Reader, model string) {
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	rc := http.NewResponseController(w) // Flush finds the http.Flusher through Unwrap
 	scanner := bufio.NewScanner(body)
+	var usage *ollamaUsage
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || line == "data: [DONE]" {
@@ -211,8 +212,18 @@ func (h *Handler) stream(w http.ResponseWriter, body io.Reader, model string) {
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
+			Usage *openAIUsage `json:"usage"`
 		}
-		if json.Unmarshal([]byte(line), &chunk) != nil || len(chunk.Choices) == 0 {
+		if json.Unmarshal([]byte(line), &chunk) != nil {
+			continue
+		}
+		if chunk.Usage != nil {
+			usage = &ollamaUsage{
+				PromptEvalCount: chunk.Usage.PromptTokens,
+				EvalCount:       chunk.Usage.CompletionTokens,
+			}
+		}
+		if len(chunk.Choices) == 0 {
 			continue
 		}
 		choice := chunk.Choices[0]
@@ -223,13 +234,18 @@ func (h *Handler) stream(w http.ResponseWriter, body io.Reader, model string) {
 		writeLine(w, map[string]any{"model": model, "created_at": time.Now().UTC(), "message": message, "done": false})
 		_ = rc.Flush()
 	}
-	writeLine(w, map[string]any{
+	final := map[string]any{
 		"model":       model,
 		"created_at":  time.Now().UTC(),
 		"message":     map[string]any{"role": "assistant", "content": ""},
 		"done_reason": "stop",
 		"done":        true,
-	})
+	}
+	if usage != nil {
+		final["prompt_eval_count"] = usage.PromptEvalCount
+		final["eval_count"] = usage.EvalCount
+	}
+	writeLine(w, final)
 	_ = rc.Flush()
 }
 
@@ -238,15 +254,31 @@ func (h *Handler) complete(w http.ResponseWriter, body io.Reader, model string) 
 		Choices []struct {
 			Message map[string]any `json:"message"`
 		} `json:"choices"`
+		Usage *openAIUsage `json:"usage"`
 	}
 	if err := json.NewDecoder(body).Decode(&result); err != nil || len(result.Choices) == 0 {
 		ollamaError(w, http.StatusBadGateway, "invalid response from node")
 		return
 	}
-	respond.JSON(w, map[string]any{
+	resultBody := map[string]any{
 		"model": model, "created_at": time.Now().UTC(),
 		"message": result.Choices[0].Message, "done": true,
-	})
+	}
+	if result.Usage != nil {
+		resultBody["prompt_eval_count"] = result.Usage.PromptTokens
+		resultBody["eval_count"] = result.Usage.CompletionTokens
+	}
+	respond.JSON(w, resultBody)
+}
+
+type openAIUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+}
+
+type ollamaUsage struct {
+	PromptEvalCount int
+	EvalCount       int
 }
 
 // statusWriter keeps the status of the response for Record. Unwrap lets the stream flush.
