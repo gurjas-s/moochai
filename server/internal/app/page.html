@@ -178,6 +178,40 @@ hr.sep { border: 0; border-top: 1px solid var(--border); margin: 0.75rem 0; }
 <pre id="chatOut"></pre>
 </section>
 
+<section>
+<h2>6. Register node (test)</h2>
+<p>Registers a test node under the saved key. The node shares the listed models with the listed groups. Calls POST /api/nodes/register.</p>
+<div class="row">
+<label for="nodeID">Node ID</label>
+<input id="nodeID" type="text" placeholder="node id" autocomplete="off" spellcheck="false">
+</div>
+<div class="row">
+<label for="nodeName">Name</label>
+<input id="nodeName" type="text" placeholder="display name" autocomplete="off">
+</div>
+<div class="row">
+<label for="nodeIP">Tailscale IP</label>
+<input id="nodeIP" type="text" placeholder="127.0.0.1" value="127.0.0.1" autocomplete="off" spellcheck="false">
+</div>
+<div class="row">
+<label for="nodePort">Listen port</label>
+<input id="nodePort" type="text" placeholder="9100" value="9100" autocomplete="off">
+</div>
+<div class="row">
+<label for="nodeModels">Models</label>
+<input id="nodeModels" type="text" placeholder="comma separated, e.g. qwen2.5" autocomplete="off" spellcheck="false">
+</div>
+<div class="row">
+<label for="nodeGroups">Groups</label>
+<input id="nodeGroups" type="text" placeholder="comma separated group ids" autocomplete="off" spellcheck="false">
+</div>
+<div class="row">
+<button class="primary" onclick="registerNode()">Register node</button>
+<span class="hint">Register and heartbeat use the same endpoint.</span>
+</div>
+<pre id="nodeOut"></pre>
+</section>
+
 <script>
 function key() { return (document.getElementById('key').value || '').trim(); }
 function saveKey() { localStorage.setItem('peerai_key', key()); out('regOut', 'Saved.'); }
@@ -220,6 +254,22 @@ async function leave() {
 }
 async function listNodes() { await call('nodesOut', '/api/nodes', {headers: auth()}); }
 async function listModels() { await call('nodesOut', '/v1/models', {headers: auth()}); }
+async function registerNode() {
+  const ip = document.getElementById('nodeIP').value.trim() || '127.0.0.1';
+  const port = document.getElementById('nodePort').value.trim() || '9100';
+  const models = document.getElementById('nodeModels').value.split(',').map(function (m) { return m.trim(); }).filter(Boolean);
+  const groups = document.getElementById('nodeGroups').value.split(',').map(function (g) { return g.trim(); }).filter(Boolean);
+  const body = {
+    node_id: document.getElementById('nodeID').value.trim(),
+    name: document.getElementById('nodeName').value.trim(),
+    tailscale_ip: ip,
+    listen_addr: ip + ':' + port,
+    version: 'dev',
+    groups: groups,
+    services: [{id: 'ui-test', type: 'llm', provider: 'ollama', models: models, supports_streaming: true, healthy: true}]
+  };
+  await call('nodeOut', '/api/nodes/register', {method: 'POST', headers: Object.assign({'Content-Type': 'application/json'}, auth()), body: JSON.stringify(body)});
+}
 async function chat() {
   const model = document.getElementById('chatModel').value.trim();
   const content = document.getElementById('chatMsg').value || 'Hello';
