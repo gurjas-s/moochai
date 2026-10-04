@@ -11,6 +11,8 @@ const (
 	TypeInvalidRequest = "invalid_request_error"
 	TypeNotFound       = "model_not_found"
 	TypeUnavailable    = "service_unavailable"
+	TypeAuth           = "authentication_error"
+	TypeForbidden      = "permission_denied"
 )
 
 // Write sends an error envelope with status.

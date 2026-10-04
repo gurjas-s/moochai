@@ -22,6 +22,7 @@ type Service struct {
 }
 
 // Node is the register and heartbeat payload, plus the last time central saw it.
+// OwnerID comes from the Bearer key. GroupIDs share the node in private mode.
 type Node struct {
 	NodeID      string    `json:"node_id"`
 	Name        string    `json:"name"`
@@ -29,6 +30,8 @@ type Node struct {
 	ListenAddr  string    `json:"listen_addr"`
 	Version     string    `json:"version"`
 	Services    []Service `json:"services"`
+	OwnerID     string    `json:"owner_id,omitempty"`
+	GroupIDs    []string  `json:"groups,omitempty"`
 	LastSeen    time.Time `json:"last_seen"`
 }
 
@@ -63,14 +66,14 @@ func (r *Registry) Upsert(n Node) bool {
 	return !ok
 }
 
-// Lookup returns a live node with a healthy service for model.
-// Calls rotate between nodes that serve the same model.
-func (r *Registry) Lookup(model string) (Node, bool) {
+// Lookup returns a live node with a healthy service for model
+// that the caller can access. Calls rotate between matching nodes.
+func (r *Registry) Lookup(model, callerID string, callerGroups map[string]bool) (Node, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var match []Node
 	for _, n := range r.sorted() {
-		if serves(n, model) {
+		if serves(n, model) && canSee(n, callerID, callerGroups) {
 			match = append(match, n)
 		}
 	}
@@ -81,13 +84,16 @@ func (r *Registry) Lookup(model string) (Node, bool) {
 	return match[r.next%len(match)], true
 }
 
-// Models returns each model that a live node serves, sorted by ID.
-func (r *Registry) Models() []Model {
+// Models returns each accessible model that a live node serves, sorted by ID.
+func (r *Registry) Models(callerID string, callerGroups map[string]bool) []Model {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var out []Model
 	seen := map[string]bool{}
 	for _, n := range r.sorted() {
+		if !canSee(n, callerID, callerGroups) {
+			continue
+		}
 		for _, s := range n.Services {
 			for _, m := range s.Models {
 				if s.Healthy && !seen[m] {
@@ -101,11 +107,17 @@ func (r *Registry) Models() []Model {
 	return out
 }
 
-// Nodes returns the live nodes, sorted by ID.
-func (r *Registry) Nodes() []Node {
+// Nodes returns the live nodes the caller can access, sorted by ID.
+func (r *Registry) Nodes(callerID string, callerGroups map[string]bool) []Node {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.sorted()
+	out := make([]Node, 0)
+	for _, n := range r.sorted() {
+		if canSee(n, callerID, callerGroups) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // Sweep removes expired nodes and returns their IDs.
@@ -142,6 +154,21 @@ func (r *Registry) sorted() []Node {
 }
 
 func (r *Registry) stale(n Node) bool { return r.now().Sub(n.LastSeen) > r.ttl }
+
+// canSee reports private access. The owner sees the node.
+// A group member sees the node when the node shares that group.
+// The caller holds mu.
+func canSee(n Node, callerID string, callerGroups map[string]bool) bool {
+	if n.OwnerID != "" && n.OwnerID == callerID {
+		return true
+	}
+	for _, g := range n.GroupIDs {
+		if callerGroups[g] {
+			return true
+		}
+	}
+	return false
+}
 
 func serves(n Node, model string) bool {
 	for _, s := range n.Services {
