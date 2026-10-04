@@ -102,11 +102,27 @@ go test ./... -count=1
 | POST | `/v1/completions` | Forward to a node that serves the model |
 | POST | `/v1/embeddings` | Forward to a node that serves the model |
 | POST | `/v1/images/generations` | Forward to a node that serves the model |
+| GET | `/api/tags` | List live models for Ollama clients |
+| POST | `/api/show` | Return model metadata for Ollama clients |
+| POST | `/api/chat` | Translate Ollama chat to OpenAI chat |
 | GET | `/join` | Join page (HTML) |
 | GET | `/join.sh` | Node install script |
 | GET | `/join/peerai-node.yaml` | Default node config |
 | GET | `/join/bin/{os}-{arch}` | Node binary |
 | GET | `/app` | Test UI for nodes and models |
+
+Zed can use the Ollama-compatible surface with automatic model discovery:
+
+```json
+{
+  "language_models": {
+    "ollama": {
+      "api_url": "http://100.64.0.10:8080",
+      "auto_discover": true
+    }
+  }
+}
+```
 
 ## Examples
 
