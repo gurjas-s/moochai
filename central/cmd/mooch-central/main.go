@@ -143,7 +143,7 @@ func run(addr, analyticsAddr, binDir string, ttl time.Duration, mode outputMode,
 
 	store := openStats(ctx)
 	defer store.Close()
-	apiHandler, routes, ollamaHandler := api.New(reg, f), router.New(reg, f), ollama.New(reg)
+	apiHandler, routes, ollamaHandler := api.New(reg, f), router.New(reg, f), ollama.New(reg, f)
 	if store != nil {
 		apiHandler.Heartbeat = store.Heartbeat
 		routes.Record = store.Record
