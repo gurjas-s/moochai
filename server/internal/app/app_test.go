@@ -9,7 +9,7 @@ import (
 
 func TestPage(t *testing.T) {
 	mux := http.NewServeMux()
-	New(nil).Register(mux)
+	Register(mux)
 	for _, path := range []string{"/app", "/app/"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))

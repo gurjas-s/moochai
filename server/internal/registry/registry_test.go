@@ -12,7 +12,7 @@ func node(id, model string, healthy bool) Node {
 func TestLookupSkipsUnhealthyAndStale(t *testing.T) {
 	now := time.Unix(0, 0)
 	r := New(time.Minute)
-	r.now = func() time.Time { return now }
+	r.clock = func() time.Time { return now }
 	r.Upsert(node("a", "qwen", false))
 	if _, ok := r.Lookup("qwen", "u_owner", map[string]bool{}); ok {
 		t.Fatal("unhealthy service must not match")

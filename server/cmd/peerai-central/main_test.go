@@ -44,38 +44,36 @@ func TestFindTailscaleIPv4(t *testing.T) {
 }
 
 func TestHostAddrExplicitHost(t *testing.T) {
-	listen, tsIP, err := hostAddr("127.0.0.1:9000")
+	listen, tailscaleIP, err := resolveListenAddr("127.0.0.1:9000")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if listen != "127.0.0.1:9000" || tsIP.IsValid() {
-		t.Fatalf("got %q %v, want 127.0.0.1:9000 and no Tailscale IP", listen, tsIP)
+	if listen != "127.0.0.1:9000" || tailscaleIP.IsValid() {
+		t.Fatalf("got %q %v, want 127.0.0.1:9000 and no Tailscale IP", listen, tailscaleIP)
 	}
 
-	listen, tsIP, err = hostAddr("100.64.0.7:8080")
+	listen, tailscaleIP, err = resolveListenAddr("100.64.0.7:8080")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if listen != "100.64.0.7:8080" || tsIP.String() != "100.64.0.7" {
-		t.Fatalf("got %q %v, want 100.64.0.7:8080 and 100.64.0.7", listen, tsIP)
+	if listen != "100.64.0.7:8080" || tailscaleIP.String() != "100.64.0.7" {
+		t.Fatalf("got %q %v, want 100.64.0.7:8080 and 100.64.0.7", listen, tailscaleIP)
 	}
 }
 
 func TestHostAddrInvalid(t *testing.T) {
-	if _, _, err := hostAddr("8080"); err == nil {
+	if _, _, err := resolveListenAddr("8080"); err == nil {
 		t.Fatal("want error for address without port separator")
 	}
 }
 
 func TestPrintJoinInfo(t *testing.T) {
 	var b strings.Builder
-	printJoinInfo(&b, netip.MustParseAddr("100.70.1.2"), "peerai-central.tail1234.ts.net", "8080")
+	printJoinInfo(&b, netip.MustParseAddr("100.70.1.2"), "8080")
 	out := b.String()
 	for _, want := range []string{
 		"http://100.70.1.2:8080/join",
 		"curl -fsSL http://100.70.1.2:8080/join.sh | sh",
-		"peerai-central.tail1234.ts.net",
-		"central_host: \"100.70.1.2\"\n  central_port: 8080",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output does not contain %q:\n%s", want, out)

@@ -1,13 +1,8 @@
-// Command peerai-central is the PeerAI central server.
-//
-// Nodes register and send heartbeats to central over Tailscale. Tools send
-// OpenAI-compatible requests to central. Central forwards each request to a
-// node that serves the requested model.
+// Command peerai-central routes OpenAI requests from tools to PeerAI nodes on the tailnet.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,9 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"os"
-	"os/exec"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -44,17 +37,16 @@ func main() {
 	if *debug {
 		level = slog.LevelDebug
 	}
-	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
-	slog.SetDefault(log)
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 
-	if err := run(*addr, *binDir, *ttl, log); err != nil {
-		log.Error("central stopped", "error", err)
+	if err := run(*addr, *binDir, *ttl); err != nil {
+		slog.Error("central stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, binDir string, ttl time.Duration, log *slog.Logger) error {
-	listen, tsIP, err := hostAddr(addr)
+func run(addr, binDir string, ttl time.Duration) error {
+	listen, tailscaleIP, err := resolveListenAddr(addr)
 	if err != nil {
 		return err
 	}
@@ -62,26 +54,26 @@ func run(addr, binDir string, ttl time.Duration, log *slog.Logger) error {
 	reg := registry.New(ttl)
 	authStore := auth.New()
 	mux := http.NewServeMux()
-	api.New(reg, authStore, log).Register(mux)
-	router.New(reg, authStore, log).Register(mux)
-	app.New(log).Register(mux)
-	join.New(binDir, log).Register(mux)
+	api.New(reg, authStore).Register(mux)
+	router.New(reg, authStore).Register(mux)
+	app.Register(mux)
+	join.New(binDir).Register(mux)
 
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return err
 	}
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	log.Info("central listening", "addr", ln.Addr().String())
-	if tsIP.IsValid() {
-		printJoinInfo(os.Stdout, tsIP, tailscaleDNSName(), port)
+	slog.Info("central listening", "addr", ln.Addr().String())
+	if tailscaleIP.IsValid() {
+		printJoinInfo(os.Stdout, tailscaleIP, port)
 	} else {
-		log.Warn("central does not listen on a Tailscale IP, so other machines cannot join")
+		slog.Warn("central does not listen on a Tailscale IP, so other machines cannot join")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go sweep(ctx, reg, ttl/3, log)
+	go expireNodesLoop(ctx, reg, ttl/3)
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -93,29 +85,27 @@ func run(addr, binDir string, ttl time.Duration, log *slog.Logger) error {
 	if err := srv.Serve(ln); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
-	log.Info("central stopped")
+	slog.Info("central stopped")
 	return nil
 }
 
-func sweep(ctx context.Context, reg *registry.Registry, every time.Duration, log *slog.Logger) {
-	t := time.NewTicker(every)
-	defer t.Stop()
+func expireNodesLoop(ctx context.Context, reg *registry.Registry, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-t.C:
+		case <-ticker.C:
 			for _, id := range reg.Sweep() {
-				log.Info("node expired", "node_id", id)
+				slog.Info("node expired", "node_id", id)
 			}
 		}
 	}
 }
 
-// hostAddr returns the address to listen on. An empty host becomes the
-// Tailscale IPv4 of this machine, so only the tailnet can reach central.
-// tsIP is valid when the listen host is a Tailscale IPv4.
-func hostAddr(addr string) (listen string, tsIP netip.Addr, err error) {
+// An empty host means the Tailscale IPv4 of this machine, so only the tailnet can reach central.
+func resolveListenAddr(addr string) (listen string, tailscaleIP netip.Addr, err error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return "", netip.Addr{}, fmt.Errorf("invalid -addr %q: %w", addr, err)
@@ -151,29 +141,7 @@ func findTailscaleIPv4(addrs []net.Addr) (netip.Addr, bool) {
 	return netip.Addr{}, false
 }
 
-// tailscaleDNSName returns the MagicDNS name of this machine, or "".
-func tailscaleDNSName() string {
-	for _, bin := range []string{"tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"} {
-		out, err := exec.Command(bin, "status", "--self", "--json").Output()
-		if err != nil {
-			continue
-		}
-		var st struct{ Self struct{ DNSName string } }
-		if json.Unmarshal(out, &st) == nil {
-			return strings.TrimSuffix(st.Self.DNSName, ".")
-		}
-	}
-	return ""
-}
-
-func printJoinInfo(w io.Writer, ip netip.Addr, dnsName, port string) {
+func printJoinInfo(w io.Writer, ip netip.Addr, port string) {
 	base := "http://" + net.JoinHostPort(ip.String(), port)
-	fmt.Fprintf(w, "\nPeerAI central is up on the tailnet.\n\n")
-	fmt.Fprintf(w, "  Join page:   %s/join\n", base)
-	fmt.Fprintf(w, "  Join command (macOS/Linux):\n    curl -fsSL %s/join.sh | sh\n", base)
-	fmt.Fprintf(w, "  OpenAI base URL for tools: %s/v1\n", base)
-	if dnsName != "" {
-		fmt.Fprintf(w, "  MagicDNS name: %s\n", dnsName)
-	}
-	fmt.Fprintf(w, "\nManual node config (peerai-node.yaml):\nnetwork:\n  central_host: %q\n  central_port: %s\n\n", ip.String(), port)
+	fmt.Fprintf(w, "\nPeerAI central is up on the tailnet.\n\n  Join page:   %[1]s/join\n  Join command (macOS/Linux):\n    curl -fsSL %[1]s/join.sh | sh\n  OpenAI base URL for tools: %[1]s/v1\n", base)
 }

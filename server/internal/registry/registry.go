@@ -1,13 +1,13 @@
-// Package registry keeps the nodes that send register and heartbeat to central.
+// Package registry keeps the live nodes and finds a node for a model.
 package registry
 
 import (
+	"slices"
 	"sort"
 	"sync"
 	"time"
 )
 
-// Service is one advertised capability entry of a node.
 type Service struct {
 	ID                string         `json:"id"`
 	Name              string         `json:"name"`
@@ -21,8 +21,6 @@ type Service struct {
 	Meta              map[string]any `json:"meta,omitempty"`
 }
 
-// Node is the register and heartbeat payload, plus the last time central saw it.
-// OwnerID comes from the Bearer key. GroupIDs share the node in private mode.
 type Node struct {
 	NodeID      string    `json:"node_id"`
 	Name        string    `json:"name"`
@@ -35,151 +33,132 @@ type Node struct {
 	LastSeen    time.Time `json:"last_seen"`
 }
 
-// Model is one model that a live node serves.
 type Model struct {
 	ID     string
 	NodeID string
 }
 
-// Registry is safe for concurrent use.
 type Registry struct {
-	mu    sync.Mutex
-	ttl   time.Duration
-	now   func() time.Time
-	nodes map[string]Node
-	next  int // round-robin counter for Lookup
+	nodesLock   sync.Mutex
+	nodeTTL     time.Duration
+	clock       func() time.Time
+	nodes       map[string]Node
+	lookupCount int
 }
 
-// New returns a Registry. A node expires ttl after its last heartbeat.
-func New(ttl time.Duration) *Registry {
-	return &Registry{ttl: ttl, now: time.Now, nodes: map[string]Node{}}
+// New returns an empty registry where nodes expire nodeTTL after their last heartbeat.
+func New(nodeTTL time.Duration) *Registry {
+	return &Registry{nodeTTL: nodeTTL, clock: time.Now, nodes: map[string]Node{}}
 }
 
-// Upsert adds or replaces n and sets LastSeen.
-// It returns true when the node is new.
-func (r *Registry) Upsert(n Node) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	_, ok := r.nodes[n.NodeID]
-	n.LastSeen = r.now()
-	r.nodes[n.NodeID] = n
-	return !ok
+// Upsert stores node with a fresh LastSeen and reports whether the node is new.
+func (reg *Registry) Upsert(node Node) bool {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	_, known := reg.nodes[node.NodeID]
+	node.LastSeen = reg.clock()
+	reg.nodes[node.NodeID] = node
+	return !known
 }
 
-// Lookup returns a live node with a healthy service for model
-// that the caller can access. Calls rotate between matching nodes.
-func (r *Registry) Lookup(model, callerID string, callerGroups map[string]bool) (Node, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var match []Node
-	for _, n := range r.sorted() {
-		if serves(n, model) && canSee(n, callerID, callerGroups) {
-			match = append(match, n)
+// Lookup picks an accessible node that serves model, rotating between matches.
+func (reg *Registry) Lookup(model, callerID string, callerGroups map[string]bool) (Node, bool) {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	var matches []Node
+	for _, node := range reg.accessibleLocked(callerID, callerGroups) {
+		if slices.Contains(node.healthyModels(), model) {
+			matches = append(matches, node)
 		}
 	}
-	if len(match) == 0 {
+	if len(matches) == 0 {
 		return Node{}, false
 	}
-	r.next++
-	return match[r.next%len(match)], true
+	reg.lookupCount++
+	return matches[reg.lookupCount%len(matches)], true
 }
 
-// Models returns each accessible model that a live node serves, sorted by ID.
-func (r *Registry) Models(callerID string, callerGroups map[string]bool) []Model {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var out []Model
+// Models lists the models the caller can use, sorted by ID.
+func (reg *Registry) Models(callerID string, callerGroups map[string]bool) []Model {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	var result []Model
 	seen := map[string]bool{}
-	for _, n := range r.sorted() {
-		if !canSee(n, callerID, callerGroups) {
-			continue
-		}
-		for _, s := range n.Services {
-			for _, m := range s.Models {
-				if s.Healthy && !seen[m] {
-					seen[m] = true
-					out = append(out, Model{ID: m, NodeID: n.NodeID})
-				}
+	for _, node := range reg.accessibleLocked(callerID, callerGroups) {
+		for _, modelID := range node.healthyModels() {
+			if !seen[modelID] {
+				seen[modelID] = true
+				result = append(result, Model{ID: modelID, NodeID: node.NodeID})
 			}
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
 }
 
-// Nodes returns the live nodes the caller can access, sorted by ID.
-func (r *Registry) Nodes(callerID string, callerGroups map[string]bool) []Node {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := make([]Node, 0)
-	for _, n := range r.sorted() {
-		if canSee(n, callerID, callerGroups) {
-			out = append(out, n)
+// Nodes lists the live nodes the caller can access, sorted by ID.
+func (reg *Registry) Nodes(callerID string, callerGroups map[string]bool) []Node {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	return reg.accessibleLocked(callerID, callerGroups)
+}
+
+// Sweep deletes expired nodes and returns their IDs.
+func (reg *Registry) Sweep() []string {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	var removed []string
+	for id, node := range reg.nodes {
+		if reg.expired(node) {
+			delete(reg.nodes, id)
+			removed = append(removed, id)
 		}
 	}
-	return out
+	return removed
 }
 
-// Sweep removes expired nodes and returns their IDs.
-func (r *Registry) Sweep() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var gone []string
-	for id, n := range r.nodes {
-		if r.stale(n) {
-			delete(r.nodes, id)
-			gone = append(gone, id)
+// Len returns the number of stored nodes, including expired ones.
+func (reg *Registry) Len() int {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	return len(reg.nodes)
+}
+
+// accessibleLocked returns live nodes the caller can access, sorted by ID; caller holds nodesLock.
+func (reg *Registry) accessibleLocked(callerID string, callerGroups map[string]bool) []Node {
+	result := make([]Node, 0, len(reg.nodes))
+	for _, node := range reg.nodes {
+		if !reg.expired(node) && canAccess(node, callerID, callerGroups) {
+			result = append(result, node)
 		}
 	}
-	return gone
+	sort.Slice(result, func(i, j int) bool { return result[i].NodeID < result[j].NodeID })
+	return result
 }
 
-// Len returns the number of stored nodes.
-func (r *Registry) Len() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return len(r.nodes)
-}
+// expired reports whether node missed heartbeats for longer than nodeTTL.
+func (reg *Registry) expired(node Node) bool { return reg.clock().Sub(node.LastSeen) > reg.nodeTTL }
 
-// sorted returns live nodes in a stable order. The caller holds mu.
-func (r *Registry) sorted() []Node {
-	out := make([]Node, 0, len(r.nodes))
-	for _, n := range r.nodes {
-		if !r.stale(n) {
-			out = append(out, n)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].NodeID < out[j].NodeID })
-	return out
-}
-
-func (r *Registry) stale(n Node) bool { return r.now().Sub(n.LastSeen) > r.ttl }
-
-// canSee reports private access. The owner sees the node.
-// A group member sees the node when the node shares that group.
-// The caller holds mu.
-func canSee(n Node, callerID string, callerGroups map[string]bool) bool {
-	if n.OwnerID != "" && n.OwnerID == callerID {
+// canAccess reports whether the caller owns node or shares one of its groups.
+func canAccess(node Node, callerID string, callerGroups map[string]bool) bool {
+	if node.OwnerID != "" && node.OwnerID == callerID {
 		return true
 	}
-	for _, g := range n.GroupIDs {
-		if callerGroups[g] {
+	for _, groupID := range node.GroupIDs {
+		if callerGroups[groupID] {
 			return true
 		}
 	}
 	return false
 }
 
-func serves(n Node, model string) bool {
-	for _, s := range n.Services {
-		if !s.Healthy {
-			continue
-		}
-		for _, m := range s.Models {
-			if m == model {
-				return true
-			}
+// healthyModels returns the models of the healthy services of node.
+func (node Node) healthyModels() []string {
+	var models []string
+	for _, service := range node.Services {
+		if service.Healthy {
+			models = append(models, service.Models...)
 		}
 	}
-	return false
+	return models
 }
