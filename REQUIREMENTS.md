@@ -1,4 +1,4 @@
-# Mooch.ai Client – Minimal Requirements (MVP)
+# Mooch.ai Node – Minimal Requirements (MVP)
 
 Goal: Build a single Go binary that advertises local AI services to the central Mooch.ai server over Tailscale, and forwards routed OpenAI-compatible requests to the correct local backend.
 
@@ -20,7 +20,7 @@ Goal: Build a single Go binary that advertises local AI services to the central 
 - [ ] **Validation** – Reject invalid URLs, empty `id`, empty `models[]`, or missing required fields on startup
 - [ ] **YAML format** – Use a simple YAML parser (`gopkg.in/yaml.v3`)
 
-## 3. Service Broadcast (Custom, Client -> Central)
+## 3. Service Broadcast (Custom, Node -> Central)
 
 The client **must** send this custom payload on `register` and `heartbeat`. Do **not** scrape `/v1/models` from local backends and forward it as-is.
 
@@ -68,7 +68,7 @@ Each service object must include:
 - [ ] **Extra routes (if configured)** – `POST /v1/embeddings`, `POST /v1/audio/transcriptions`, `POST /v1/images/generations`, `GET /v1/models` (forward if exists, not required)
 - [ ] **Only accept routed traffic** – Don't add any unauthenticated public UI. Keep minimal.
 
-## 6. Request Forwarding (Client -> Local Backend)
+## 6. Request Forwarding (Node -> Local Backend)
 
 - [ ] **Route by model** – On incoming OpenAI request, find which configured service has `request.model` in its `models[]`. Use that service.
 - [ ] **Unknown model** – If no match, return `400 Bad Request` with clear JSON error + `X-Mooch-Node: <node_id>`

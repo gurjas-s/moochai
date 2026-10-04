@@ -32,20 +32,14 @@ go.work.sum
 .vscode/
 .zed/
 
-# go files
-mooch-serv
+# Go files
+mooch-central
+mooch-node
 
 # Local build output
 bin/
 
-# Local client build output
-Client/mooch-node
-Client/mooch-node-dev
-
-# Local server build output
-server/dist/
-server/mooch-central
-server/mooch-ai
-server/peerai-central
+# Local central build output
+central/dist/
 
 mooch-node.yaml

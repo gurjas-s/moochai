@@ -39,21 +39,21 @@ These words have one meaning in all Mooch.ai documents:
 Start central on one computer of the tailnet:
 
 ```sh
-cd server
+cd central
 make build  # once: build the node binaries that /join gives to new nodes
 make start  # build central, start TimescaleDB, then start central with analytics
 ```
 
 One `make start` serves all of these at the same time:
 
-| Client | Address |
+| Node and tools | Address |
 |--------|---------|
 | Nodes and tools on the tailnet | `http://<central-tailscale-ip>:8080` |
 | Programs on the central computer, such as the [demo scripts](demo/README.md) | `http://127.0.0.1:8080` |
 | The analytics page, on the central computer only | `http://127.0.0.1:3000/analytics` |
 
 `make start` builds central each time. Go keeps a build cache, so a start with no code changes is fast.
-`make start` does not build the node binaries. Run `make build` again after you change the code in `Client/`.
+`make start` does not build the node binaries. Run `make build` again after you change the code in `node/`.
 For local tests without Tailscale, use `make start ADDR=127.0.0.1:8080`.
 
 ### 2. Join a computer
@@ -73,7 +73,7 @@ curl -fsSL http://<central-tailscale-ip>:8080/join.sh | sh
 
 The command installs `mooch-node` and a config in `~/.mooch`, and then starts the node.
 You can also open `http://<central-tailscale-ip>:8080/join` in a browser.
-For a manual setup, read [`Client/README.md`](Client/README.md).
+For a manual setup, read [`node/README.md`](node/README.md).
 
 ### 3. Use the models
 
@@ -170,7 +170,7 @@ Central prints lines automatically when its output is not a terminal.
 Central can keep a usage history in TimescaleDB, the open-source database of Tiger Data:
 
 ```sh
-cd server
+cd central
 make start  # start TimescaleDB on 127.0.0.1, then start central with analytics
 ```
 
@@ -190,15 +190,15 @@ With the database, central sends each request to the node with the least work in
 ## Repository layout
 
 ```text
-Client/                   mooch-node (Go module mooch-client)
+node/                   mooch-node (Go module mooch-node)
   cmd/mooch-node/         the node binary
   internal/config/        config file, default paths, validation
   internal/identity/      Tailscale IP, node ID, listen address
   internal/central/       register and heartbeat to central
-  internal/server/        listener, /healthz, OpenAI routes
+  internal/server/         listener, /healthz, OpenAI routes
   internal/proxy/         forward each request to the backend of its model
   internal/tui/           node dashboard
-server/                   mooch-central (Go module mooch-serv)
+central/                   mooch-central (Go module mooch-central)
   cmd/mooch-central/      the central binary
   internal/registry/      live nodes and model lookup
   internal/router/        OpenAI routes and forwarding
@@ -215,14 +215,14 @@ AGENTS.md                 rules for contributors and coding agents
 
 More documents:
 
-- [`Client/README.md`](Client/README.md): node setup, config, logs, and troubleshooting.
-- [`server/README.md`](server/README.md): central flags, endpoints, and request flow.
+- [`node/README.md`](node/README.md): node setup, config, logs, and troubleshooting.
+- [`central/README.md`](central/README.md): central flags, endpoints, and request flow.
 - [`demo/README.md`](demo/README.md): analytics demo scripts.
 - [`REQUIREMENTS.md`](REQUIREMENTS.md): the node requirements.
 
 ## Development
 
-Run these checks in `Client/` and in `server/` before a push:
+Run these checks in `node/` and in `central/` before a push:
 
 ```sh
 gofmt -l .                # the output must be empty
@@ -232,6 +232,18 @@ go test ./... -count=1
 
 Each push to a shared branch needs a GitHub issue and a pull request.
 Read [`AGENTS.md`](AGENTS.md) for the full workflow and the writing rules.
+
+## Releases
+
+Push a tag with the `v` prefix to build and publish release binaries:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The release workflow tests both Go modules and publishes `mooch-central` and
+`mooch-node` binaries for Linux and macOS on amd64 and arm64.
 
 ## Security
 
@@ -245,4 +257,4 @@ The analytics database is optional.
 The database listens on `127.0.0.1` of the central computer only.
 Central keeps metadata only, such as time, node, model, status, and duration.
 Central does not keep prompt text or response text.
-Read [`server/README.md`](server/README.md#analytics) for more information.
+Read [`central/README.md`](central/README.md#analytics) for more information.
