@@ -292,11 +292,12 @@ func (m *model) console(width, height int) string {
 }
 
 // wrap cuts line into screen lines of width. Continuation lines start under the message, after the time and tag.
-// Inside a request block, continuation lines keep the rail.
+// Inside a message frame, continuation lines keep the rail and its colour.
 func wrap(line string, width int) []string {
 	indent := strings.Repeat(" ", 16) // "15:04:05  ROUTE "
 	if r := []rune(ansi.Strip(line)); len(r) > 10 && r[10] == '│' {
-		indent = strings.Repeat(" ", 10) + dimStyle.Render("│") + strings.Repeat(" ", 7) // "15:04:05  │ REQ   "
+		rail := ansi.TruncateLeft(ansi.Truncate(line, 11, ""), 10, "")
+		indent = strings.Repeat(" ", 10) + rail + "\033[0m" + strings.Repeat(" ", 7) // "15:04:05  │ REQ   "
 	}
 	n := ansi.StringWidth(indent)
 	if ansi.StringWidth(line) <= width || width <= n+10 {

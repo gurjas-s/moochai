@@ -115,8 +115,11 @@ Central shows a terminal dashboard when it runs in a terminal:
 ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
 │ CONSOLE                                                                                      │
 │ 12:00:01  JOIN  gpu-box 100.64.0.7 · models: qwen2.5:7b, llama3.1:8b                         │
-│ 12:00:09  ╭─ #1 laptop asks for qwen2.5:7b → gpu-box · served by: gpu-box                    │
+│ 12:00:09  ROUTE #1 laptop asks for qwen2.5:7b → gpu-box · served by: gpu-box                 │
+│           ╭────────────────────────────────────────────────────────────                       │
 │ 12:00:09  │ REQ   [ laptop → gpu-box ] "Hello" POST /v1/chat/completions · #1                  │
+│           ╰────────────────────────────────────────────────────────────                       │
+│           ╭────────────────────────────────────────────────────────────                       │
 │ 12:00:10  │ RESP  [ gpu-box → laptop ] "Hello! How can I help you?" 200 in 812ms · #1          │
 │           ╰────────────────────────────────────────────────────────────                       │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
@@ -125,9 +128,9 @@ Central shows a terminal dashboard when it runs in a terminal:
 - **NODES** shows the live nodes. A yellow dot shows that a node has not sent a heartbeat for 20 seconds.
 - **MODELS** shows each available model and the nodes that serve the model, separated by commas.
 - **CONSOLE** shows the events: nodes that join or leave, routes, requests, and responses.
-  A grey frame encloses each request and its response.
+  A frame encloses each message between two nodes: blue for a request, green for a response, and red for an error response.
   REQ and RESP lines show the direction of each message, for example `[ laptop → gpu-box ]`.
-  The number at the end of a line (`#1`) connects the lines of one request when two requests overlap.
+  The number at the end of a line (`#1`) connects a request to its response.
 
 Use these keys in the dashboard:
 
