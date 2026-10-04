@@ -99,7 +99,9 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 	}
 	result := map[string]any{
 		"modelfile": "", "parameters": "", "template": "", "details": info,
-		"capabilities": []string{"completion"},
+	}
+	if len(model.Capabilities) > 0 {
+		result["capabilities"] = model.Capabilities
 	}
 	if model.MaxModelLen > 0 {
 		result["model_info"] = map[string]any{

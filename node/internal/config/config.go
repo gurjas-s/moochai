@@ -157,6 +157,7 @@ type Backend struct {
 type ModelMeta struct {
 	ContextWindow *int `yaml:"context_window"`
 	MaxTokens     *int `yaml:"max_tokens"`
+	Capabilities  []string `yaml:"capabilities"`
 }
 
 // ResolvedAPIBase returns APIBase or the default.

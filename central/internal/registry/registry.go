@@ -35,6 +35,7 @@ type Model struct {
 	ID          string
 	NodeID      string
 	MaxModelLen int
+	Capabilities []string
 }
 
 type Registry struct {
@@ -106,12 +107,55 @@ func (reg *Registry) Models() []Model {
 		for _, modelID := range node.healthyModels() {
 			if !seen[modelID] {
 				seen[modelID] = true
-				result = append(result, Model{ID: modelID, NodeID: node.NodeID, MaxModelLen: node.modelContextWindow(modelID)})
+				result = append(result, Model{
+					ID:           modelID,
+					NodeID:       node.NodeID,
+					MaxModelLen:  node.modelContextWindow(modelID),
+					Capabilities: node.modelCapabilities(modelID),
+				})
 			}
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
+}
+
+func (node Node) modelCapabilities(modelID string) []string {
+	for _, service := range node.Services {
+		if !service.Healthy {
+			continue
+		}
+		for _, id := range service.Models {
+			if id == modelID {
+				return stringSlice(service.Meta)
+			}
+		}
+	}
+	return nil
+}
+
+func stringSlice(meta map[string]any) []string {
+	if meta == nil {
+		return nil
+	}
+	raw, ok := meta["capabilities"]
+	if !ok {
+		return nil
+	}
+	switch values := raw.(type) {
+	case []string:
+		return append([]string(nil), values...)
+	case []any:
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if text, ok := value.(string); ok && text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 // Nodes lists the live nodes, sorted by ID.

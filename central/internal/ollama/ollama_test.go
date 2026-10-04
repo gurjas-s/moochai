@@ -18,7 +18,7 @@ func TestTagsAndShow(t *testing.T) {
 	reg.Upsert(registry.Node{
 		NodeID: "n1",
 		Services: []registry.Service{{Models: []string{"qwen"}, Healthy: true,
-			Meta: map[string]any{"context_window": 8192}}},
+			Meta: map[string]any{"context_window": 8192, "capabilities": []string{"completion", "tools"}}}},
 	})
 	mux := http.NewServeMux()
 	New(reg).Register(mux)
@@ -41,7 +41,9 @@ func TestTagsAndShow(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	body, _ = io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"mooch.context_length":8192`) {
+	if resp.StatusCode != http.StatusOK ||
+		!strings.Contains(string(body), `"mooch.context_length":8192`) ||
+		!strings.Contains(string(body), `"capabilities":["completion","tools"]`) {
 		t.Fatalf("show = %d %s", resp.StatusCode, body)
 	}
 }
@@ -49,7 +51,9 @@ func TestTagsAndShow(t *testing.T) {
 func TestChatTranslatesNonStreamingResponse(t *testing.T) {
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		if r.URL.Path != "/v1/chat/completions" || !strings.Contains(string(body), `"max_tokens":12`) {
+		if r.URL.Path != "/v1/chat/completions" ||
+			!strings.Contains(string(body), `"max_tokens":12`) ||
+			!strings.Contains(string(body), `"tools":[{"type":"function"`) {
 			t.Errorf("upstream request = %s %s", r.URL.Path, body)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -71,7 +75,7 @@ func TestChatTranslatesNonStreamingResponse(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	resp, err := http.Post(srv.URL+"/api/chat", "application/json",
-		strings.NewReader(`{"model":"qwen","messages":[{"role":"user","content":"hi"}],"stream":false,"options":{"num_predict":12}}`))
+		strings.NewReader(`{"model":"qwen","messages":[{"role":"user","content":"hi"}],"stream":false,"options":{"num_predict":12},"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}

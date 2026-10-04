@@ -87,13 +87,19 @@ func TestDiscoverBackendManualOverrideWins(t *testing.T) {
 
 	ctx := 32768
 	b := Backend{Name: "main", Endpoint: backend.URL,
-		ModelMeta: map[string]ModelMeta{"m": {ContextWindow: &ctx}}}
+		ModelMeta: map[string]ModelMeta{"m": {
+			ContextWindow: &ctx,
+			Capabilities:  []string{"completion", "tools"},
+		}}}
 	services, err := DiscoverBackend(context.Background(), testClient(backend), b)
 	if err != nil {
 		t.Fatalf("DiscoverBackend() error = %v", err)
 	}
 	if services[0].Meta["context_window"] != 32768 {
 		t.Fatalf("meta = %v, want override 32768", services[0].Meta)
+	}
+	if got := services[0].Meta["capabilities"]; !sameStrings(got, []string{"completion", "tools"}) {
+		t.Fatalf("capabilities = %v, want configured override", got)
 	}
 }
 
@@ -124,7 +130,7 @@ func TestDiscoverBackendOllamaShow(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"qwen2.5"}]}`))
 	})
 	mux.HandleFunc("/api/show", func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"details":{"family":"qwen2"},"model_info":{"general.architecture":"qwen2","qwen2.context_length":131072}}`))
+		_, _ = w.Write([]byte(`{"details":{"family":"qwen2"},"model_info":{"general.architecture":"qwen2","qwen2.context_length":131072},"capabilities":["completion","tools"]}`))
 	})
 	backend := httptest.NewServer(mux)
 	defer backend.Close()
@@ -137,6 +143,22 @@ func TestDiscoverBackendOllamaShow(t *testing.T) {
 	if services[0].Meta["context_window"] != 131072 {
 		t.Fatalf("meta = %v, want 131072", services[0].Meta)
 	}
+	if got := services[0].Meta["capabilities"]; !sameStrings(got, []string{"completion", "tools"}) {
+		t.Fatalf("capabilities = %v, want completion and tools", got)
+	}
+}
+
+func sameStrings(value any, want []string) bool {
+	got, ok := value.([]string)
+	if !ok || len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestDiscoverBackendFailsWhenListFails(t *testing.T) {

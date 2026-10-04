@@ -26,10 +26,11 @@ backends:
     # expose defaults to all models. List names to filter down.
     expose: ["*"]
     # model_meta overrides discovery per model. Use it when the backend
-    # hides context_window.
+    # hides context_window or capabilities.
     model_meta:
       qwen2.5:
         context_window: 32768
+        # capabilities: ["completion", "tools"]
 
 # Legacy form: static services still work. Discovery merges with this list.
 # services:

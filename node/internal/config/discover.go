@@ -3,8 +3,8 @@
 // Discovery keeps the broadcast shape unchanged. It reads the
 // OpenAI-standard GET {api_base}/models list, then fills extras on a
 // best-effort basis: max_model_len or context_length from the list,
-// n_ctx from llamacpp GET /props, and context_length from Ollama
-// POST /api/show. Manual model_meta in config always wins.
+// n_ctx from llamacpp GET /props, and context_length and capabilities from
+// Ollama POST /api/show. Manual model_meta in config always wins.
 package config
 
 import (
@@ -44,7 +44,8 @@ type ollamaShowResponse struct {
 	Details struct {
 		Family string `json:"family"`
 	} `json:"details"`
-	ModelInfo map[string]any `json:"model_info"`
+	ModelInfo    map[string]any `json:"model_info"`
+	Capabilities []string       `json:"capabilities"`
 }
 
 // DiscoverBackend queries one backend and builds broadcast Service objects.
@@ -72,17 +73,24 @@ func DiscoverBackend(ctx context.Context, client *http.Client, backend Backend) 
 			continue
 		}
 		contextWindow := contextFromEntry(entry)
+		var capabilities []string
 		if propsCtx > 0 {
 			contextWindow = &propsCtx
 		}
 		if backend.ResolvedProvider() == ProviderOllama {
-			if n, err := fetchOllamaCtx(ctx, client, backend, entry.ID); err == nil && n > 0 {
-				contextWindow = &n
+			if n, discoveredCapabilities, err := fetchOllamaInfo(ctx, client, backend, entry.ID); err == nil {
+				if n > 0 {
+					contextWindow = &n
+				}
+				capabilities = discoveredCapabilities
 			}
 		}
 		meta := map[string]any{}
 		if contextWindow != nil && *contextWindow > 0 {
 			meta["context_window"] = *contextWindow
+		}
+		if len(capabilities) > 0 {
+			meta["capabilities"] = capabilities
 		}
 		if override, ok := backend.ModelMeta[entry.ID]; ok {
 			if override.ContextWindow != nil {
@@ -90,6 +98,9 @@ func DiscoverBackend(ctx context.Context, client *http.Client, backend Backend) 
 			}
 			if override.MaxTokens != nil {
 				meta["max_tokens"] = *override.MaxTokens
+			}
+			if len(override.Capabilities) > 0 {
+				meta["capabilities"] = override.Capabilities
 			}
 		}
 		var metaOut map[string]any
@@ -242,29 +253,29 @@ func fetchLlamaCtx(ctx context.Context, client *http.Client, backend Backend) (i
 	return 0, fmt.Errorf("props carry no n_ctx")
 }
 
-func fetchOllamaCtx(ctx context.Context, client *http.Client, backend Backend, model string) (int, error) {
+func fetchOllamaInfo(ctx context.Context, client *http.Client, backend Backend, model string) (int, []string, error) {
 	endpoint, err := url.Parse(backend.Endpoint)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	endpoint.Path = "/api/show"
 	body, _ := json.Marshal(map[string]string{"model": model})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("show returned HTTP %d", resp.StatusCode)
+		return 0, nil, fmt.Errorf("show returned HTTP %d", resp.StatusCode)
 	}
 	var show ollamaShowResponse
 	if err := json.NewDecoder(resp.Body).Decode(&show); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	arch := show.Details.Family
 	if arch == "" {
@@ -275,18 +286,18 @@ func fetchOllamaCtx(ctx context.Context, client *http.Client, backend Backend, m
 	if arch != "" {
 		if raw, ok := show.ModelInfo[arch+".context_length"]; ok {
 			if n, ok := jsonNumberToInt(raw); ok {
-				return n, nil
+				return n, show.Capabilities, nil
 			}
 		}
 	}
 	for key, raw := range show.ModelInfo {
 		if strings.HasSuffix(key, ".context_length") {
 			if n, ok := jsonNumberToInt(raw); ok {
-				return n, nil
+				return n, show.Capabilities, nil
 			}
 		}
 	}
-	return 0, fmt.Errorf("show carries no context_length for %q", model)
+	return 0, show.Capabilities, nil
 }
 
 func jsonNumberToInt(raw any) (int, bool) {
