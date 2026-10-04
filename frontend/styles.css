@@ -1,0 +1,49 @@
+:root {
+  --bg: #fff;
+  --muted: #f4f4f2;
+  --border: #dcdcd8;
+  --text: #1c1c1a;
+  --soft: #6b6b66;
+  --accent: #1f4e79;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161616;
+    --muted: #242422;
+    --border: #3a3a36;
+    --text: #e8e8e4;
+    --soft: #a3a39c;
+    --accent: #7aa7d1;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  font: 15px/1.6 system-ui, sans-serif;
+  max-width: 58rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 4rem;
+  color: var(--text);
+  background: var(--bg);
+}
+.hero { border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 1.5rem; }
+.kicker { color: var(--soft); text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.75rem; margin: 0; }
+h1 { font-size: 2rem; margin: 0.25rem 0; letter-spacing: -0.02em; }
+.sub { color: var(--soft); margin: 0 0 1rem; }
+.cta-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.btn { border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.9rem; text-decoration: none; color: var(--text); background: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.hint { color: var(--soft); font-size: 0.85rem; }
+section { border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+h2 { margin: 0 0 0.5rem; font-size: 1.1rem; }
+h3 { margin: 1.25rem 0 0.5rem; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--soft); }
+pre { background: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; overflow-x: auto; font-size: 0.8rem; }
+code { font-family: ui-monospace, Menlo, monospace; }
+.cards { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.card { border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.75rem; min-width: 8rem; }
+.card .label { display: block; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--soft); }
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+th, td { text-align: left; border-bottom: 1px solid var(--border); padding: 0.4rem 0.5rem; }
+input[type=text] { font: inherit; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); width: 18rem; max-width: 100%; }
+.steps { padding-left: 1.25rem; }
+.steps li { margin-bottom: 1rem; }
+footer { color: var(--soft); font-size: 0.85rem; }

@@ -1,0 +1,55 @@
+{
+  "status": "ok",
+  "central_version": "v0.1.0-dev",
+  "uptime": "2h15m0s",
+  "updated_at": "2026-10-04T12:00:00Z",
+  "nodes_live": 2,
+  "models_live": 3,
+  "models": [
+    {
+      "id": "qwen2.5-32b-instruct",
+      "type": "llm",
+      "provider": "vllm",
+      "streaming": true,
+      "healthy_nodes": 2,
+      "context_window": 32768
+    },
+    {
+      "id": "nomic-embed-text",
+      "type": "embedding",
+      "provider": "ollama",
+      "streaming": false,
+      "healthy_nodes": 1,
+      "context_window": 0
+    },
+    {
+      "id": "whisper-large-v3",
+      "type": "whisper",
+      "provider": "whisper",
+      "streaming": false,
+      "healthy_nodes": 1,
+      "context_window": 0
+    }
+  ],
+  "nodes": [
+    {
+      "alias": "node-a3f9",
+      "version": "v0.1.0-dev",
+      "seen_ago_s": 7,
+      "models": ["qwen2.5-32b-instruct", "nomic-embed-text"],
+      "healthy": true
+    },
+    {
+      "alias": "node-71c2",
+      "version": "v0.1.0-dev",
+      "seen_ago_s": 12,
+      "models": ["qwen2.5-32b-instruct", "whisper-large-v3"],
+      "healthy": true
+    }
+  ],
+  "feed": [
+    "12:00:01 JOIN node-a3f9 · models: qwen2.5-32b-instruct, nomic-embed-text",
+    "12:00:20 ROUTE peer asks for qwen2.5-32b-instruct → node-a3f9",
+    "12:00:22 RESP 200 in 1.2s"
+  ]
+}
