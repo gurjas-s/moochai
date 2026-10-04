@@ -69,16 +69,16 @@ live nodes and models. Central relies on the tailnet to limit who can connect.
 Use the Makefile in `server/`:
 
 ```sh
-make run          # build central and the node binaries, then listen on the Tailscale IPv4, port 8080
-make run-local    # build central, then listen on 127.0.0.1:8080 for local tests
-make run-plain    # like run, but print event lines without the dashboard
+make build        # build central and the node binaries into dist/, so /join can serve them
+make start        # build central, start TimescaleDB, then start central with analytics
 make check        # format check, vet, and tests
 make help         # list all targets
 ```
 
-Set `FLAGS` to give more flags to central, for example `make run FLAGS=-details`.
-Set `ADDR` or `LOCAL_ADDR` to change the listen address.
-`make run` builds the node binaries into `dist/`, so `/join` can serve them.
+`make start` listens on the Tailscale IPv4, port 8080. Central also listens on `127.0.0.1` at the same port,
+so programs on the central computer (for example the demo scripts) can connect.
+Set `ADDR` to change the listen address, for example `make start ADDR=127.0.0.1:8080` for tests without Tailscale.
+Set `FLAGS` to give more flags to central, for example `make start FLAGS=-plain` or `make start FLAGS=-details`.
 
 You can also run the commands directly:
 
@@ -90,7 +90,8 @@ go run ./cmd/mooch-central -addr 127.0.0.1:8080   # local use only
 
 | Flag | Default | Use |
 |------|---------|-----|
-| `-addr` | `:8080`, or `MOOCH_ADDR` | Listen address. An empty host means the Tailscale IPv4. |
+| `-addr` | `:8080`, or `MOOCH_ADDR` | Listen address. An empty host means the Tailscale IPv4. Central also listens on `127.0.0.1` at the same port. |
+| `-analytics-addr` | `127.0.0.1:3000` | Listen address of the analytics page and its API. Keep it on loopback, so only central can open it. |
 | `-bin` | `dist` | Directory with node binaries for `/join`. |
 | `-node-ttl` | `45s` | Remove a node after this time without a heartbeat. |
 | `-debug` | `false` | Log each heartbeat. |
@@ -110,10 +111,13 @@ Without a database, central works as before. The analytics routes then return 50
 
 ```sh
 make db-up        # start TimescaleDB in Docker on 127.0.0.1:5432
-make run-db       # start central with MOOCH_DB_URL set to the local database
+make start        # start the database and central with MOOCH_DB_URL set to the local database (also does db-up)
 make test-db      # run the database tests in a temporary database
 make db-down      # stop the database; the data stays in the mooch-db volume
 ```
+
+Open `http://127.0.0.1:3000/analytics` on the central machine. The tailnet cannot open the analytics page or its API.
+The tailnet gets only `GET /leaderboard.json` on port 8080.
 
 To use another database, set `MOOCH_DB_URL` before you start central.
 
@@ -238,6 +242,7 @@ curl $C/v1/embeddings -d '{"model": "nomic-embed-text", "input": "Hello"}'
 ```
 
 To use central from an OpenAI SDK, set the base URL to `$C/v1`. The SDK needs an API key value, but central ignores the value.
+To add central as a provider in opencode or other tools, read [Add central as a provider](../README.md#4-add-central-as-a-provider).
 
 ### Join
 

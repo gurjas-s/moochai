@@ -117,3 +117,19 @@ func TestLoadEnvFile(t *testing.T) {
 		t.Fatalf("bad line error = %v", err)
 	}
 }
+
+func TestLoopbackAddr(t *testing.T) {
+	cases := map[string]string{
+		"100.64.0.7:8080": "127.0.0.1:8080", // Tailscale IPv4: add loopback
+		"127.0.0.1:8080":  "",               // already loopback
+		"0.0.0.0:8080":    "",               // already all addresses
+		"[::]:8080":       "",
+		"bad":             "",
+	}
+	for in, want := range cases {
+		got, ok := loopbackAddr(in)
+		if got != want || ok != (want != "") {
+			t.Errorf("loopbackAddr(%q) = %q, %v; want %q", in, got, ok, want)
+		}
+	}
+}

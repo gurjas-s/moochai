@@ -112,7 +112,7 @@ The client checks backend health with `GET /v1/models`.
 Start the client with an explicit configuration path:
 
 ```sh
-./mooch-node --config ./mooch-node.yaml
+./bin/mooch-node --config ./mooch-node.yaml
 ```
 
 When `--config` is not provided, the client checks these paths in order:
@@ -159,8 +159,8 @@ Set the mode with `--log-mode` or `MOOCH_LOG_MODE`.
 Set the format with `--log-format` or `MOOCH_LOG_FORMAT` (`text` or `json`).
 
 ```sh
-./mooch-node --config ./mooch-node.yaml --log-mode requests --log-format text
-MOOCH_LOG_MODE=dev MOOCH_LOG_FORMAT=json ./mooch-node --config ./mooch-node.yaml
+./bin/mooch-node --config ./mooch-node.yaml --log-mode requests --log-format text
+MOOCH_LOG_MODE=dev MOOCH_LOG_FORMAT=json ./bin/mooch-node --config ./mooch-node.yaml
 ```
 
 - `requests` (default): logs HTTP requests plus warnings and errors.
@@ -235,7 +235,7 @@ Run the join command from central, or copy `mooch-node.yaml.example` to `mooch-n
 You can also give the file path:
 
 ```sh
-./mooch-node --config /path/to/node.yaml
+./bin/mooch-node --config /path/to/node.yaml
 ```
 
 ### Tailscale address cannot be resolved

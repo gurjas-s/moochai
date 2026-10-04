@@ -7,18 +7,6 @@ Mooch.ai sends each request to a computer that has the requested model.
 
 ## How it works
 
-```text
- your tool                      central                         node                 backend
- (Zed, curl, SDK)        (mooch-central)                 (mooch-node)     (Ollama, vLLM, ...)
-     │                          │                               │                     │
-     │ POST /v1/chat/completions│                               │                     │
-     │ {"model": "qwen2.5"}     │                               │                     │
-     ├─────────────────────────▶│ find a live node with qwen2.5 │                     │
-     │                          ├──────────────────────────────▶│ forward by model    │
-     │                          │                               ├────────────────────▶│
-     │◀─────────────────── response (streams flow chunk by chunk) ◀───────────────────┤
-```
-
 Mooch.ai has two programs:
 
 | Program | Job |
@@ -36,6 +24,8 @@ These words have one meaning in all Mooch.ai documents:
 | service | One backend entry that a node advertises to central. |
 | model | A model ID, such as `qwen2.5:7b`. |
 
+![techstack image](./demo/techstack.png)
+
 ## Requirements
 
 - Go 1.24 or later, to build from source.
@@ -50,12 +40,21 @@ Start central on one computer of the tailnet:
 
 ```sh
 cd server
-make run    # build central and the node binaries for the join command, then start central
+make build  # once: build the node binaries that /join gives to new nodes
+make start  # build central, start TimescaleDB, then start central with analytics
 ```
 
-Central listens only on its Tailscale IPv4.
-Thus only computers on your tailnet can connect.
-For local tests, use `make run-local`. It listens on `127.0.0.1:8080`.
+One `make start` serves all of these at the same time:
+
+| Client | Address |
+|--------|---------|
+| Nodes and tools on the tailnet | `http://<central-tailscale-ip>:8080` |
+| Programs on the central computer, such as the [demo scripts](demo/README.md) | `http://127.0.0.1:8080` |
+| The analytics page, on the central computer only | `http://127.0.0.1:3000/analytics` |
+
+`make start` builds central each time. Go keeps a build cache, so a start with no code changes is fast.
+`make start` does not build the node binaries. Run `make build` again after you change the code in `Client/`.
+For local tests without Tailscale, use `make start ADDR=127.0.0.1:8080`.
 
 ### 2. Join a computer
 
@@ -95,51 +94,49 @@ curl http://<central-tailscale-ip>:8080/v1/chat/completions \
 `GET /v1/models` lists all models of the live nodes.
 Central also has an Ollama-compatible API (`/api/tags`, `/api/show`, `/api/chat`) for tools such as Zed.
 
-## Analytics
+### 4. Add central as a provider
 
-Central can keep a usage history in TimescaleDB, the open-source database of Tiger Data:
+Add central as an OpenAI-compatible provider in your tool.
+Central has no authentication. If the tool requires an API key, use any value.
 
-```sh
-cd server
-make run-db    # start TimescaleDB on 127.0.0.1, then start central with analytics
+For [opencode](https://opencode.ai), add this provider to `opencode.json` (in the project or in `~/.config/opencode/`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "mooch": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Mooch.ai",
+      "options": {
+        "baseURL": "http://<central-tailscale-ip>:8080/v1"
+      },
+      "models": {
+        "qwen2.5:7b": { "name": "Qwen 2.5 7B" }
+      }
+    }
+  }
+}
 ```
 
-Open `http://<central-tailscale-ip>:8080/analytics` to see these values:
+opencode does not read `/v1/models`. Add one entry in `models` for each model that you want to use.
+Each key must be a model ID from `curl http://<central-tailscale-ip>:8080/v1/models`.
+Then run `/models` in opencode and select a model from Mooch.ai.
 
-- The share of tokens that each participant gives and uses, with the total in each chart.
-- The balance of each participant: tokens served minus tokens used.
-- The live request rate and the use of each model. The page updates every half second.
+Other OpenAI-compatible tools use the same values:
 
-The [`demo/`](demo/README.md) folder has scripts that simulate a cluster of 20 users.
+| Setting | Value |
+|---------|-------|
+| Base URL | `http://<central-tailscale-ip>:8080/v1` |
+| API key | Any value. Central ignores the key. |
+| Model | A model ID from `/v1/models` |
 
-With the database, central sends each request to the node with the least work in the last hour.
 
-## The central dashboard
+## Central Dashboard
 
 Central shows a terminal dashboard when it runs in a terminal:
 
-```text
-╭───────────────────────────────────╮╭──────────────────────────────╮╭──────────────────────────────────╮
-│  ███╗   ███╗ ██████╗  ██████╗ ... ││ NODES 2 connected            ││ MODELS 3 available               │
-│  ████╗ ████║██╔═══██╗██╔═══██╗... ││ ● gpu-box  100.64.0.7  1s ago││ llama3.1:8b       gpu-box        │
-│  ...                              ││ ● laptop   100.64.0.9  3s ago││ qwen2.5:7b        gpu-box, laptop│
-│                                   ││                              ││ whisper-large-v3  laptop         │
-╰───────────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────────╯
- ● tailnet 100.64.0.1:8080   OpenAI base URL http://100.64.0.1:8080/v1   join curl -fsSL …
-╭──────────────────────────────────────────────────────────────────────────────────────────────╮
-│ CONSOLE                                                                                      │
-│ ──────────────────────────────────────────── #1 ──────────────────────────────────────────── │
-│           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:09  │ MODEL    [ laptop → gpu-box ] qwen2.5:7b                                       │ │
-│           ╰────────────────────────────────────────────────────────────────────────────────╯ │
-│           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:09  │ REQUEST  [ laptop → gpu-box ] "Hello"                                          │ │
-│           ╰────────────────────────────────────────────────────────────────────────────────╯ │
-│           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:10  │ RESPONSE [ gpu-box → laptop ] "Hello! How can I help you?" in 812ms            │ │
-│           ╰────────────────────────────────────────────────────────────────────────────────╯ │
-╰──────────────────────────────────────────────────────────────────────────────────────────────╯
-```
+![sample image](./demo/sample.png)
 
 - **NODES** shows the live nodes. A yellow dot shows that a node has not sent a heartbeat for 20 seconds.
 - **MODELS** shows each available model and the nodes that serve the model, separated by commas.
@@ -165,6 +162,30 @@ The dashboard reads the mouse for the wheel. To select text, hold `Option` (macO
 Use `-plain` to print the events as lines without the dashboard. The lines also show the nodes that join or leave.
 Use `-verbose` to print plain log lines.
 Central prints lines automatically when its output is not a terminal.
+
+## Analytics
+
+![analytics dashboard](./demo/dashboard.png)
+
+Central can keep a usage history in TimescaleDB, the open-source database of Tiger Data:
+
+```sh
+cd server
+make start  # start TimescaleDB on 127.0.0.1, then start central with analytics
+```
+
+`make start` always turns on analytics. Docker must run on the central computer.
+
+On the central machine, open `http://127.0.0.1:3000/analytics` to see these values. Other machines cannot open it.
+
+- The share of tokens that each participant gives and uses, with the total in each chart.
+- The balance of each participant: tokens served minus tokens used.
+- The live request rate and the use of each model. The page updates every half second.
+
+The [`demo/`](demo/README.md) folder has scripts that simulate a cluster of 20 users.
+The scripts connect to the same central that `make start` runs. You do not need a special mode.
+
+With the database, central sends each request to the node with the least work in the last hour.
 
 ## Repository layout
 
@@ -219,6 +240,7 @@ Read [`AGENTS.md`](AGENTS.md) for the full workflow and the writing rules.
 Central has no authentication.
 All computers that can connect to central can use all live nodes and models.
 Central relies on your tailnet to control access.
+Central also listens on `127.0.0.1`. Only programs on the central computer can use that address.
 Do not expose central on a public address.
 
 The analytics database is optional.

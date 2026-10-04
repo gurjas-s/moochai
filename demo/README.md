@@ -6,14 +6,17 @@ These scripts simulate a cluster of 20 to 100 users on one computer, so you can 
 
 ```sh
 cd server
-make db-up                  # start TimescaleDB once
-cp .env.example .env        # once: the database URL and the local address
-go run ./cmd/mooch-central
+make start                  # TimescaleDB, and central with analytics
 ```
 
-Central reads `.env` from the directory where it starts. A variable that you set in the shell wins over the file.
+Central also listens on `127.0.0.1:8080`, so the scripts connect with no options.
+You do not need a special mode. The same central also serves the nodes on the tailnet.
+For `simulate-fast.py`, use `make start FLAGS=-plain > /dev/null`.
 
-Open <http://127.0.0.1:8080/analytics>. The page updates every half second.
+Caution: the fake users are real nodes for central. During a demo, central can send requests from tailnet users to fake users.
+Those requests get fake answers. Do not run a demo while other people use the cluster.
+
+Open <http://127.0.0.1:3000/analytics>. The page updates every half second.
 
 ## Scripts
 

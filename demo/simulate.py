@@ -5,7 +5,7 @@ Each user gets its own loopback IP (127.0.0.10, .11, ...), so central can tell t
 and the analytics show real give and take. Givers run a fake backend and advertise models.
 Takers advertise no models and only send requests. Most users do both.
 
-Usage (central must listen on 127.0.0.1:8080 with MOOCH_DB_URL set):
+Usage (start central first with `make start` in server/):
     python3 demo/simulate.py                 # 20 users for 5 minutes
     python3 demo/simulate.py --users 15 --minutes 10 --seed 7
     python3 demo/simulate.py --single-ip     # no sudo, but central sees one requester
@@ -326,7 +326,7 @@ def main():
         givers = sum(1 for u in users if u.models)
         print(f"Run {len(users)} users ({givers} share models, {len(users) - givers} only use them) "
               f"for {args.minutes:g} min against {args.central}. Press Ctrl+C to stop early.")
-        print(f"Open {args.central}/analytics to watch.")
+        print("Open http://127.0.0.1:3000/analytics on the central machine to watch.")
         end = time.time() + args.minutes * 60
         try:
             while time.time() < end and not stop.is_set():

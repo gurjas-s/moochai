@@ -5,7 +5,7 @@ Use it to watch TimescaleDB take a steady write rate while /analytics updates li
 Each user has a fast fake backend and workers on keep-alive connections.
 The users share one worker process for each CPU core.
 
-Usage (central must listen on 127.0.0.1:8080 with MOOCH_DB_URL set):
+Usage (start central first with `make start` in server/):
     python3 demo/simulate-fast.py                     # 50 users, about 100 requests/s, 2 minutes
     python3 demo/simulate-fast.py --users 100 --rps 200 --minutes 5
     python3 demo/simulate-fast.py --single-ip         # no sudo, but central sees one requester
@@ -183,7 +183,7 @@ def main():
             procs.append(p)
         print(f"Run {len(picked)} users at about {args.rps:g} requests/s for {args.minutes:g} min "
               f"against {args.central}. Press Ctrl+C to stop early.")
-        print(f"Open {args.central}/analytics to watch.")
+        print("Open http://127.0.0.1:3000/analytics on the central machine to watch.")
         end, last, last_t = time.time() + args.minutes * 60, 0, time.time()
         while time.time() < end:
             time.sleep(min(5, max(0.1, end - time.time())))
