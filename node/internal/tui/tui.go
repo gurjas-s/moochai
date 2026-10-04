@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -363,7 +364,11 @@ func (m *model) activity(width, height int) string {
 }
 
 // wrap cuts line into screen lines of width. Continuation lines start under the message, after the time and tag.
+// A line of a message frame does not wrap: redraw draws it again at width.
 func wrap(line string, width int) []string {
+	if l, ok := redraw(line, width); ok {
+		return []string{l}
+	}
 	const indent = wrapIndent // "15:04:05  READY "
 	if ansi.StringWidth(line) <= width || width <= indent+10 {
 		return strings.Split(ansi.Hardwrap(line, width, true), "\n")
@@ -373,6 +378,49 @@ func wrap(line string, width int) []string {
 		out = append(out, strings.Repeat(" ", indent)+l)
 	}
 	return out
+}
+
+// divider matches the line that the log handler writes before each request, for example "──── #1 ────".
+var divider = regexp.MustCompile(`^─+ (#\d+) ─+$`)
+
+// redraw draws a line of a message frame again at width. The borders fill the width and close on the right.
+// A long text line keeps its important parts and cuts only the text part.
+// A divider before a request also fills the width, with its request number in the centre.
+// redraw reports false when line is not part of a frame.
+func redraw(line string, width int) (string, bool) {
+	if m := divider.FindStringSubmatch(ansi.Strip(line)); m != nil {
+		label := " " + m[1] + " "
+		left := (width - ansi.StringWidth(label)) / 2
+		return dimStyle.Render(strings.Repeat("─", max(0, left)) + label + strings.Repeat("─", max(0, width-left-ansi.StringWidth(label)))), true
+	}
+	plain := []rune(ansi.Strip(line))
+	if len(plain) <= 10 || !strings.ContainsRune("╭╰│", plain[10]) || width < 20 {
+		return "", false
+	}
+	edge := ansi.TruncateLeft(ansi.Truncate(line, 11, ""), 10, "") // the first border character with its colour
+	colour := edge[:strings.IndexAny(edge, "╭╰│")]
+	pad := strings.Repeat(" ", 10)
+	switch plain[10] {
+	case '╭':
+		return pad + colour + "╭" + strings.Repeat("─", width-12) + "╮\033[0m", true
+	case '╰':
+		return pad + colour + "╰" + strings.Repeat("─", width-12) + "╯\033[0m", true
+	}
+	keep, text, tail := line, "", ""
+	if parts := strings.Split(line, cut); len(parts) == 3 {
+		keep, text, tail = parts[0], parts[1], parts[2]
+	}
+	end := " " + colour + "│\033[0m"
+	limit := width - 2                                                  // the content stops before " │"
+	room := limit - ansi.StringWidth(keep) - ansi.StringWidth(tail) - 2 // 2 for the spaces around text
+	content := keep
+	for _, part := range []string{ansi.Truncate(text, max(0, room), "…"), tail} {
+		if ansi.StringWidth(part) > 0 {
+			content += " " + part
+		}
+	}
+	content = ansi.Truncate(content, limit, "…")
+	return content + strings.Repeat(" ", width-ansi.StringWidth(content)-ansi.StringWidth(end)) + end, true
 }
 
 func (m *model) footer() string {
