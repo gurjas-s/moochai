@@ -1,9 +1,5 @@
 # Mooch.ai
 
-Steal AI compute resource from your peers. Mooch.ai runs as a local P2P session that clusters any computers together, exposing your friends' AI models to your computer.
-
-🤩
-
 Mooch.ai connects the computers on one Tailscale network into one AI cluster.
 Each computer shares the models of its local backends, such as Ollama, vLLM, or llama.cpp.
 Your tools send OpenAI requests to one address.
@@ -110,7 +106,7 @@ make run-db    # start TimescaleDB on 127.0.0.1, then start central with analyti
 
 Open `http://<central-tailscale-ip>:8080/analytics` to see these values:
 
-- The participants that give the most tokens, and the participants that use the most tokens.
+- The share of tokens that each participant gives and uses, with the total in each chart.
 - The balance of each participant: tokens served minus tokens used.
 - The live request rate and the use of each model. The page updates every half second.
 
@@ -180,6 +176,7 @@ Client/                   mooch-node (Go module mooch-client)
   internal/central/       register and heartbeat to central
   internal/server/        listener, /healthz, OpenAI routes
   internal/proxy/         forward each request to the backend of its model
+  internal/tui/           node dashboard
 server/                   mooch-central (Go module mooch-serv)
   cmd/mooch-central/      the central binary
   internal/registry/      live nodes and model lookup
@@ -189,6 +186,9 @@ server/                   mooch-central (Go module mooch-serv)
   internal/join/          join page, install script, node binaries
   internal/feed/          console event lines
   internal/tui/           terminal dashboard
+  internal/stats/         usage history, /analytics page, fair routing
+demo/                     cluster simulators for the analytics page
+frontend/                 static site for mooch.tech
 REQUIREMENTS.md           node requirements
 AGENTS.md                 rules for contributors and coding agents
 ```
@@ -197,6 +197,8 @@ More documents:
 
 - [`Client/README.md`](Client/README.md): node setup, config, logs, and troubleshooting.
 - [`server/README.md`](server/README.md): central flags, endpoints, and request flow.
+- [`demo/README.md`](demo/README.md): analytics demo scripts.
+- [`frontend/README.md`](frontend/README.md): the mooch.tech site.
 - [`REQUIREMENTS.md`](REQUIREMENTS.md): the node requirements.
 
 ## Development

@@ -34,8 +34,7 @@ make build-dev
 
 The command creates `bin/mooch-node-dev`.
 Both binaries use the same optimized build.
-Dev differs only in log output.
-Use it for debug work:
+Dev differs only in log output:
 
 ```sh
 make run-dev CONFIG=./mooch-node.yaml
@@ -89,7 +88,6 @@ and merge with discovered ones.
 Set `network.central_host` to the Tailscale IPv4 address of central.
 Set `network.central_port` to the central HTTP port.
 Set `network.listen_port` to the port that central can reach.
-Set `backends[].endpoint` to the local backend URL.
 
 Leave `node.id` empty to generate a stable ID.
 The client stores the generated ID in `~/.config/mooch/node.id`.
