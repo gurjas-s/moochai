@@ -33,7 +33,6 @@ go.work.sum
 .zed/
 
 # go files
-go.sum
 mooch-serv
 
 # Local build output
