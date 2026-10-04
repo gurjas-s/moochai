@@ -108,7 +108,7 @@ func (f *Feed) Left(n registry.Node) {
 	f.event(red, "LEAVE", "%s %s", f.paint(cyan, Name(n)), f.paint(dim, "no heartbeat"))
 }
 
-// Route prints the model selection and the node that gets the request.
+// Route prints the model selection and the node that gets the request in a frame.
 // Route returns a request number for Request and Response.
 func (f *Feed) Route(from, model string, available []string, to string) int {
 	if f == nil {
@@ -118,7 +118,7 @@ func (f *Feed) Route(from, model string, available []string, to string) int {
 	f.reqID++
 	id := f.reqID
 	f.mu.Unlock()
-	f.event(yellow, "ROUTE", "%s %s asks for %s %s %s %s", f.paint(dim, fmt.Sprintf("#%d", id)), f.paint(cyan, from),
+	f.message(yellow, "ROUTE", "%s %s asks for %s %s %s %s", f.paint(dim, fmt.Sprintf("#%d", id)), f.paint(cyan, from),
 		f.paint(magenta, model), f.paint(dim, "→"), f.paint(cyan, to), f.paint(grey, "· served by: "+strings.Join(available, ", ")))
 	return id
 }
@@ -167,7 +167,7 @@ func (f *Feed) event(code, tag, format string, args ...any) {
 	f.printf("%s  %s %s\n", f.paint(dim, f.now().Format("15:04:05")), f.paint(bold+code, fmt.Sprintf("%-5s", tag)), msg)
 }
 
-// message prints a message between two nodes in a frame: a top border, the line on a rail, and a bottom border.
+// message prints a route or a message between two nodes in a frame: a top border, the line on a rail, and a bottom border.
 // The frame has the colour of the tag. The three lines go out in one write, so other events cannot split the frame.
 func (f *Feed) message(code, tag, format string, args ...any) {
 	if f == nil {
