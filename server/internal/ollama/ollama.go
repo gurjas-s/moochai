@@ -36,6 +36,9 @@ func New(reg *registry.Registry) *Handler {
 			DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
 			ResponseHeaderTimeout: 5 * time.Minute,
 			IdleConnTimeout:       90 * time.Second,
+			// Keep connections open for parallel requests. The default of 2 closes most connections under load,
+			// and each closed connection holds a local port for about 30 s.
+			MaxIdleConnsPerHost: 256,
 		}},
 	}
 }
