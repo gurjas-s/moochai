@@ -33,7 +33,6 @@ go.work.sum
 .zed/
 
 # Go files
-go.sum
 mooch-central
 mooch-node
 
