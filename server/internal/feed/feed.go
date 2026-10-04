@@ -119,19 +119,33 @@ func (f *Feed) Route(from, model string, available []string, to string) int {
 	return id
 }
 
-// Request prints the forwarded request, its direction, and a preview of the prompt.
+// Request prints the direction, the prompt, and the path of the forwarded request.
 func (f *Feed) Request(id int, from, to, path, preview string) {
-	f.event(blue, "REQ", "%s %s %s %s", f.id(id), f.paint(dim, from+" → "+to), path, f.quote(preview))
+	f.event(blue, "REQ", "%s %s %s %s", f.id(id), f.chat(blue, from, to), f.text(preview), f.paint(dim, path))
 }
 
-// Response prints the direction, the status, the duration, and a preview of the answer.
+// Response prints the direction, the answer, the status, and the duration.
 func (f *Feed) Response(id int, from, to string, status int, d time.Duration, preview string) {
 	code := green
 	if status >= 400 {
 		code = red
 	}
-	f.event(code, "RESP", "%s %s %s %s %s", f.id(id), f.paint(dim, from+" → "+to), f.paint(bold+code, fmt.Sprint(status)),
-		f.paint(dim, "in "+d.Round(time.Millisecond).String()), f.quote(preview))
+	f.event(code, "RESP", "%s %s %s %s %s", f.id(id), f.chat(code, from, to), f.text(preview),
+		f.paint(bold+code, fmt.Sprint(status)), f.paint(dim, "in "+d.Round(time.Millisecond).String()))
+}
+
+// chat returns the direction of a message, for example "[ laptop → gpu-box ]".
+func (f *Feed) chat(code, from, to string) string {
+	return f.paint(bold+code, "[ ") + f.paint(bold+cyan, from) + f.paint(dim, " → ") +
+		f.paint(bold+cyan, to) + f.paint(bold+code, " ]")
+}
+
+// text returns the quoted message in the normal text colour, so that it is easy to read.
+func (f *Feed) text(s string) string {
+	if s == "" {
+		return f.paint(dim, "(no text)")
+	}
+	return fmt.Sprintf("%q", s)
 }
 
 // Unreachable prints a line when central cannot connect to a node.
@@ -149,13 +163,6 @@ func (f *Feed) event(code, tag, format string, args ...any) {
 }
 
 func (f *Feed) id(id int) string { return f.paint(dim, fmt.Sprintf("#%d", id)) }
-
-func (f *Feed) quote(text string) string {
-	if text == "" {
-		return ""
-	}
-	return f.paint(dim, fmt.Sprintf("%q", text))
-}
 
 func (f *Feed) printf(format string, args ...any) {
 	if f == nil {

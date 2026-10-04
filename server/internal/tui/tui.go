@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
 	"strings"
 	"time"
 
@@ -181,7 +179,7 @@ var logo = func() string {
 		Padding(0, 2).Render(strings.Join(rows, "\n"))
 }()
 
-// header returns the top row: the logo, the NODES box, and the MODELS box at the same height.
+// header returns the top row: the logo and the NODES box at the same height.
 // A narrow terminal shows a one-line title in place of the logo.
 func (m *model) header() string {
 	rows, left, title := lipgloss.Height(logo)-2, logo, ""
@@ -189,14 +187,9 @@ func (m *model) header() string {
 		left = ""
 		title = titleStyle.Render("Mooch.ai Central") + "\n"
 	}
-	room := m.width - lipgloss.Width(left)
-	nodesW := room * 55 / 100
-	box := func(w int, body string) string {
-		return boxStyle.Width(w - 2).Height(rows).Render(body)
-	}
-	nodes := box(nodesW, m.nodeList(nodesW-4, rows))
-	models := box(room-nodesW, m.modelList(room-nodesW-4, rows))
-	return title + lipgloss.JoinHorizontal(lipgloss.Top, left, nodes, models)
+	width := m.width - lipgloss.Width(left)
+	nodes := boxStyle.Width(width - 2).Height(rows).Render(m.nodeList(width-4, rows))
+	return title + lipgloss.JoinHorizontal(lipgloss.Top, left, nodes)
 }
 
 // address returns one line with the central address, the OpenAI base URL, and the join command.
@@ -236,45 +229,11 @@ func (m *model) nodeList(width, height int) string {
 		if age > staleAfter {
 			dot = lipgloss.NewStyle().Foreground(yellow).Render("●")
 		}
-		models := fmt.Sprintf("%d models", len(feed.Models(n)))
-		if len(feed.Models(n)) == 1 {
-			models = "1 model"
-		}
 		row := fmt.Sprintf("%s %s  %s  %s  %s", dot,
 			lipgloss.NewStyle().Foreground(cyan).Bold(true).Render(fmt.Sprintf("%-*s", nameW, feed.Name(n))),
 			dimStyle.Render(fmt.Sprintf("%-*s", ipW, n.TailscaleIP)),
 			dimStyle.Render(fmt.Sprintf("%3ds ago", int(max(0, age.Seconds())))),
-			lipgloss.NewStyle().Foreground(magenta).Render(models))
-		rows = append(rows, ansi.Truncate(row, width, "…"))
-	}
-	return strings.Join(append([]string{label}, fit(rows, height-1)...), "\n")
-}
-
-// modelList shows each model that a healthy service serves, with the nodes that serve it.
-func (m *model) modelList(width, height int) string {
-	servedBy := map[string][]string{}
-	for _, n := range m.nodes {
-		for _, s := range n.Services {
-			for _, id := range s.Models {
-				if s.Healthy && !slices.Contains(servedBy[id], feed.Name(n)) {
-					servedBy[id] = append(servedBy[id], feed.Name(n))
-				}
-			}
-		}
-	}
-	ids := slices.Sorted(maps.Keys(servedBy))
-	label := labelStyle.Render("MODELS") + dimStyle.Render(fmt.Sprintf(" %d available", len(ids)))
-	if len(ids) == 0 {
-		return label + "\n" + dimStyle.Render("No models yet.")
-	}
-	idW := 0
-	for _, id := range ids {
-		idW = max(idW, len(id))
-	}
-	var rows []string
-	for _, id := range ids {
-		row := lipgloss.NewStyle().Foreground(magenta).Render(fmt.Sprintf("%-*s", idW, id)) + "  " +
-			dimStyle.Render(strings.Join(servedBy[id], ", "))
+			lipgloss.NewStyle().Foreground(magenta).Render(strings.Join(feed.Models(n), ", ")))
 		rows = append(rows, ansi.Truncate(row, width, "…"))
 	}
 	return strings.Join(append([]string{label}, fit(rows, height-1)...), "\n")

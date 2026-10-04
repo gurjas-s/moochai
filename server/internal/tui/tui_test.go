@@ -33,7 +33,7 @@ func TestView(t *testing.T) {
 		}
 	}
 
-	// A wide terminal shows the logo, the NODES box, and the MODELS box on one row.
+	// A wide terminal shows the logo and the NODES box, with the models of each node, on one row.
 	m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
 	view = ansi.Strip(m.View())
 	top := strings.Split(view, "\n")[2]

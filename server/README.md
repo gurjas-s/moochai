@@ -60,7 +60,7 @@ live nodes and models. Central relies on the tailnet to limit who can connect.
 | `internal/join` | Join page, install script, default node config, node binaries |
 | `internal/app` | Embedded test UI (`page.html`) at `/app` |
 | `internal/feed` | Event lines: join, leave, route, request, response |
-| `internal/tui` | Terminal dashboard: logo, NODES and MODELS boxes, event console |
+| `internal/tui` | Terminal dashboard: logo, NODES box with models, event console |
 | `internal/respond` | JSON responses and the OpenAI error envelope |
 
 ## Run

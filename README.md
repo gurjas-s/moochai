@@ -105,24 +105,24 @@ Central also has an Ollama-compatible API (`/api/tags`, `/api/show`, `/api/chat`
 Central shows a terminal dashboard when it runs in a terminal:
 
 ```text
-╭───────────────────────────────────╮╭─────────────────────────────╮╭──────────────────────────╮
-│  ███╗   ███╗ ██████╗  ██████╗ ... ││ NODES 2 connected           ││ MODELS 3 available       │
-│  ████╗ ████║██╔═══██╗██╔═══██╗... ││ ● gpu-box  100.64.0.7  1s   ││ llama3.1:8b  gpu-box     │
-│  ...                              ││ ● laptop   100.64.0.9  3s   ││ qwen2.5:7b   gpu-box, …  │
-╰───────────────────────────────────╯╰─────────────────────────────╯╰──────────────────────────╯
+╭───────────────────────────────────╮╭──────────────────────────────────────────────────────────╮
+│  ███╗   ███╗ ██████╗  ██████╗ ... ││ NODES 2 connected                                        │
+│  ████╗ ████║██╔═══██╗██╔═══██╗... ││ ● gpu-box  100.64.0.7   1s ago  qwen2.5:7b, llama3.1:8b  │
+│  ...                              ││ ● laptop   100.64.0.9   3s ago  whisper-large-v3         │
+╰───────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
  ● tailnet 100.64.0.1:8080   OpenAI base URL http://100.64.0.1:8080/v1   join curl -fsSL …
 ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
 │ CONSOLE                                                                                      │
 │ 12:00:01  JOIN  gpu-box 100.64.0.7 · models: qwen2.5:7b, llama3.1:8b                         │
 │ 12:00:09  ROUTE #1 laptop asks for qwen2.5:7b → gpu-box · served by: gpu-box                 │
-│ 12:00:09  REQ   #1 laptop → gpu-box POST /v1/chat/completions "Hello"                        │
-│ 12:00:10  RESP  #1 gpu-box → laptop 200 in 812ms "Hello! How can I help you today?"          │
+│ 12:00:09  REQ   #1 [ laptop → gpu-box ] "Hello" POST /v1/chat/completions                    │
+│ 12:00:10  RESP  #1 [ gpu-box → laptop ] "Hello! How can I help you today?" 200 in 812ms      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
-- **NODES** shows the live nodes. A yellow dot shows that a node has not sent a heartbeat for 20 seconds.
-- **MODELS** shows each available model and the nodes that serve the model.
+- **NODES** shows the live nodes and the models of each node. A yellow dot shows that a node has not sent a heartbeat for 20 seconds.
 - **CONSOLE** shows the events: nodes that join or leave, routes, requests, and responses.
+  REQ and RESP lines show the direction of each message, for example `[ laptop → gpu-box ]`.
   The number after each tag (`#1`) connects the lines of one request.
 
 Use these keys in the dashboard:
