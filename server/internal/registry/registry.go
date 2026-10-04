@@ -32,8 +32,9 @@ type Node struct {
 }
 
 type Model struct {
-	ID     string
-	NodeID string
+	ID          string
+	NodeID      string
+	MaxModelLen int
 }
 
 type Registry struct {
@@ -100,7 +101,7 @@ func (reg *Registry) Models() []Model {
 		for _, modelID := range node.healthyModels() {
 			if !seen[modelID] {
 				seen[modelID] = true
-				result = append(result, Model{ID: modelID, NodeID: node.NodeID})
+				result = append(result, Model{ID: modelID, NodeID: node.NodeID, MaxModelLen: node.modelContextWindow(modelID)})
 			}
 		}
 	}
@@ -171,4 +172,38 @@ func (node Node) healthyModels() []string {
 		}
 	}
 	return models
+}
+
+// modelContextWindow returns the context window of model on node, or zero.
+func (node Node) modelContextWindow(modelID string) int {
+	for _, service := range node.Services {
+		if !service.Healthy {
+			continue
+		}
+		for _, id := range service.Models {
+			if id == modelID {
+				return contextWindow(service.Meta)
+			}
+		}
+	}
+	return 0
+}
+
+// contextWindow reads context_window from meta, or returns zero.
+func contextWindow(meta map[string]any) int {
+	if meta == nil {
+		return 0
+	}
+	switch v := meta["context_window"].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case float32:
+		return int(v)
+	default:
+		return 0
+	}
 }
