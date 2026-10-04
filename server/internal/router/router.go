@@ -100,12 +100,12 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
 	for _, n := range h.reg.Serving(req.Model) {
 		available = append(available, feed.Name(n))
 	}
-	h.feed.Route(h.requester(r), req.Model, available, feed.Name(node), r.Method+" "+r.URL.Path)
-	h.feed.Content(feed.Preview(body))
+	id := h.feed.Route(h.requester(r), req.Model, available, feed.Name(node))
+	h.feed.Request(id, r.Method+" "+r.URL.Path, feed.Preview(body))
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	w = rec
-	defer func() { h.feed.Done(rec.status, time.Since(start)) }()
+	defer func() { h.feed.Response(id, rec.status, time.Since(start), feed.ResponsePreview(rec.body.Bytes())) }()
 
 	r.URL = &url.URL{Scheme: "http", Host: node.ListenAddr, Path: r.URL.Path, RawQuery: r.URL.RawQuery}
 	r.Host = node.ListenAddr
@@ -123,10 +123,21 @@ func (h *Handler) requester(r *http.Request) string {
 	return host
 }
 
-// statusRecorder keeps the response status. Unwrap lets the proxy flush stream chunks.
+// maxPreviewBody limits the response bytes that the feed keeps for its preview.
+const maxPreviewBody = 64 << 10
+
+// statusRecorder keeps the response status and the start of the body. Unwrap lets the proxy flush stream chunks.
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
+	body   bytes.Buffer
+}
+
+func (s *statusRecorder) Write(b []byte) (int, error) {
+	if room := maxPreviewBody - s.body.Len(); room > 0 {
+		s.body.Write(b[:min(len(b), room)])
+	}
+	return s.ResponseWriter.Write(b)
 }
 
 func (s *statusRecorder) WriteHeader(code int) {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -124,18 +125,41 @@ func TestModels(t *testing.T) {
 	}
 }
 
+// syncBuffer lets the test read feed lines that the handler writes after the response.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 func TestForwardPrintsFeed(t *testing.T) {
-	var out bytes.Buffer
+	var out syncBuffer
 	env := setupFeed(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTeapot)
+		io.WriteString(w, `{"choices":[{"message":{"content":"general kenobi"}}]}`)
 	}, feed.New(&out))
 	post(t, env.srv.URL+"/v1/chat/completions", `{"model":"qwen","messages":[{"role":"user","content":"hello there"}]}`)
+	// The feed prints RESP after the client has the body.
+	for i := 0; i < 100 && !strings.Contains(out.String(), "RESP"); i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
 	got := out.String()
 	for _, want := range []string{
-		"127.0.0.1 selected model qwen · available: n1",
-		"127.0.0.1 -> n1 POST /v1/chat/completions",
-		`: "hello there"`,
-		"<- 418 in ",
+		"ROUTE #1 127.0.0.1 asks for qwen → n1 · served by: n1",
+		`REQ   #1 POST /v1/chat/completions "hello there"`,
+		"RESP  #1 418 in ",
+		`"general kenobi"`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("feed misses %q:\n%s", want, got)

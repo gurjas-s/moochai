@@ -2,6 +2,7 @@
 package feed
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,13 +16,15 @@ import (
 )
 
 const (
-	reset  = "\033[0m"
-	dim    = "\033[2m"
-	red    = "\033[31m"
-	green  = "\033[32m"
-	yellow = "\033[33m"
-	bold   = "\033[1m"
-	cyan   = "\033[36m"
+	reset   = "\033[0m"
+	dim     = "\033[2m"
+	bold    = "\033[1m"
+	red     = "\033[31m"
+	green   = "\033[32m"
+	yellow  = "\033[33m"
+	blue    = "\033[34m"
+	magenta = "\033[35m"
+	cyan    = "\033[36m"
 )
 
 const previewLen = 120
@@ -31,6 +34,8 @@ type Feed struct {
 	mu    sync.Mutex
 	w     io.Writer
 	color bool
+	now   func() time.Time
+	reqID int
 }
 
 // New returns a Feed that writes to w.
@@ -42,7 +47,12 @@ func New(w io.Writer) *Feed {
 			color = true
 		}
 	}
-	return &Feed{w: w, color: color}
+	return &Feed{w: w, color: color, now: time.Now}
+}
+
+// NewColor returns a Feed that always writes colour codes to w.
+func NewColor(w io.Writer) *Feed {
+	return &Feed{w: w, color: true, now: time.Now}
 }
 
 // Name returns the display name of node.
@@ -51,6 +61,15 @@ func Name(n registry.Node) string {
 		return n.Name
 	}
 	return n.NodeID
+}
+
+// Models returns the models of all services of node.
+func Models(n registry.Node) []string {
+	var models []string
+	for _, s := range n.Services {
+		models = append(models, s.Models...)
+	}
+	return models
 }
 
 // Banner prints a bordered start message with the listen address.
@@ -76,54 +95,66 @@ func (f *Feed) Banner(addr string) {
 
 // Joined prints a line when a new node registers.
 func (f *Feed) Joined(n registry.Node) {
-	models := 0
-	for _, s := range n.Services {
-		models += len(s.Models)
-	}
-	f.printf("%s %s has joined the cluster %s\n", f.paint(green, "->"), f.paint(cyan, Name(n)),
-		f.paint(dim, fmt.Sprintf("(%s, %d model%s)", n.TailscaleIP, models, plural(models))))
+	f.event(green, "JOIN", "%s %s", f.paint(cyan, Name(n)),
+		f.paint(dim, n.TailscaleIP+" · models: ")+f.paint(magenta, strings.Join(Models(n), ", ")))
 }
 
 // Left prints a line when a node expires.
 func (f *Feed) Left(n registry.Node) {
-	f.printf("%s %s has left the cluster %s\n", f.paint(red, "<-"), f.paint(cyan, Name(n)), f.paint(dim, "(no heartbeat)"))
+	f.event(red, "LEAVE", "%s %s", f.paint(cyan, Name(n)), f.paint(dim, "no heartbeat"))
 }
 
 // Route prints the model selection and the node that gets the request.
-func (f *Feed) Route(from, model string, available []string, to, path string) {
-	f.printf("\n%s %s selected model %s %s\n%s %s -> %s %s\n",
-		f.paint(yellow, "! "), f.paint(cyan, from), f.paint(yellow, model),
-		f.paint(dim, "· available: "+strings.Join(available, ", ")),
-		f.paint(yellow, "! "), f.paint(cyan, from), f.paint(cyan, to), f.paint(dim, path))
-}
-
-// Content prints a prompt preview.
-func (f *Feed) Content(text string) {
-	if text == "" {
-		return
+// Route returns a request number for Request and Response.
+func (f *Feed) Route(from, model string, available []string, to string) int {
+	if f == nil {
+		return 0
 	}
-	f.printf("   %s %s\n", f.paint(dim, ":"), f.paint(dim, fmt.Sprintf("%q", text)))
+	f.mu.Lock()
+	f.reqID++
+	id := f.reqID
+	f.mu.Unlock()
+	f.event(yellow, "ROUTE", "%s %s asks for %s %s %s %s", f.id(id), f.paint(cyan, from), f.paint(magenta, model),
+		f.paint(dim, "→"), f.paint(cyan, to), f.paint(dim, "· served by: "+strings.Join(available, ", ")))
+	return id
 }
 
-// Done prints the status and the duration of a forwarded request.
-func (f *Feed) Done(status int, d time.Duration) {
-	code := dim
+// Request prints the forwarded request and a preview of the prompt.
+func (f *Feed) Request(id int, path, preview string) {
+	f.event(blue, "REQ", "%s %s %s", f.id(id), path, f.quote(preview))
+}
+
+// Response prints the status, the duration, and a preview of the answer.
+func (f *Feed) Response(id, status int, d time.Duration, preview string) {
+	code := green
 	if status >= 400 {
 		code = red
 	}
-	f.printf("   %s\n", f.paint(code, fmt.Sprintf("<- %d in %s", status, d.Round(10*time.Millisecond))))
+	f.event(code, "RESP", "%s %s %s %s", f.id(id), f.paint(bold+code, fmt.Sprint(status)),
+		f.paint(dim, "in "+d.Round(time.Millisecond).String()), f.quote(preview))
 }
 
 // Unreachable prints a line when central cannot connect to a node.
 func (f *Feed) Unreachable(addr string) {
-	f.printf("%s\n", f.paint(red, "x  node at "+addr+" is unreachable"))
+	f.event(red, "ERROR", "%s", f.paint(red, "node at "+addr+" is unreachable"))
 }
 
-func plural(n int) string {
-	if n == 1 {
+// event prints one line: the time, a coloured tag, and the message.
+func (f *Feed) event(code, tag, format string, args ...any) {
+	if f == nil {
+		return
+	}
+	msg := strings.TrimRight(fmt.Sprintf(format, args...), " ")
+	f.printf("%s  %s %s\n", f.paint(dim, f.now().Format("15:04:05")), f.paint(bold+code, fmt.Sprintf("%-5s", tag)), msg)
+}
+
+func (f *Feed) id(id int) string { return f.paint(dim, fmt.Sprintf("#%d", id)) }
+
+func (f *Feed) quote(text string) string {
+	if text == "" {
 		return ""
 	}
-	return "s"
+	return f.paint(dim, fmt.Sprintf("%q", text))
 }
 
 func (f *Feed) printf(format string, args ...any) {
@@ -143,7 +174,6 @@ func (f *Feed) paint(code, s string) string {
 }
 
 // Preview returns the last user message of an OpenAI request body, or its prompt.
-// It collapses white space and cuts the text to previewLen characters.
 func Preview(body []byte) string {
 	var req struct {
 		Messages []struct {
@@ -165,6 +195,53 @@ func Preview(body []byte) string {
 	if text == "" {
 		_ = json.Unmarshal(req.Prompt, &text)
 	}
+	return clip(text)
+}
+
+// ResponsePreview returns the answer text of an OpenAI response body, or its error message.
+// It reads plain JSON and server-sent event streams.
+func ResponsePreview(body []byte) string {
+	type answer struct {
+		Choices []struct {
+			Text    string `json:"text"`
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			Delta struct {
+				Content string `json:"content"`
+			} `json:"delta"`
+		} `json:"choices"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	chunks := [][]byte{body}
+	if bytes.HasPrefix(bytes.TrimSpace(body), []byte("data:")) {
+		chunks = nil
+		for _, line := range bytes.Split(body, []byte("\n")) {
+			if data, ok := bytes.CutPrefix(bytes.TrimSpace(line), []byte("data:")); ok {
+				chunks = append(chunks, data)
+			}
+		}
+	}
+	var text strings.Builder
+	for _, c := range chunks {
+		var a answer
+		if json.Unmarshal(c, &a) != nil {
+			continue
+		}
+		if a.Error.Message != "" {
+			return clip("error: " + a.Error.Message)
+		}
+		for _, ch := range a.Choices {
+			text.WriteString(ch.Text + ch.Message.Content + ch.Delta.Content)
+		}
+	}
+	return clip(text.String())
+}
+
+// clip collapses white space and cuts text to previewLen characters.
+func clip(text string) string {
 	text = strings.Join(strings.Fields(text), " ")
 	if r := []rune(text); len(r) > previewLen {
 		text = string(r[:previewLen]) + "…"

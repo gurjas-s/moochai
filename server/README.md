@@ -59,6 +59,8 @@ live nodes and models. Central relies on the tailnet to limit who can connect.
 | `internal/registry` | In-memory node list: upsert, expiry, model lookup |
 | `internal/join` | Join page, install script, default node config, node binaries |
 | `internal/app` | Embedded test UI (`page.html`) at `/app` |
+| `internal/feed` | Event lines: join, leave, route, request, response |
+| `internal/tui` | Terminal dashboard: header, node list, event console |
 | `internal/respond` | JSON responses and the OpenAI error envelope |
 
 ## Run
@@ -75,6 +77,8 @@ go run ./cmd/peerai-central -addr 127.0.0.1:8080   # local use only
 | `-bin` | `dist` | Directory with node binaries for `/join`. |
 | `-node-ttl` | `45s` | Remove a node after this time without a heartbeat. |
 | `-debug` | `false` | Log each heartbeat. |
+| `-plain` | `false` | Print the event feed as lines. Do not show the dashboard. |
+| `-verbose` | `false` | Print plain log lines. Do not show the feed or the dashboard. |
 
 Run these checks before a push:
 
