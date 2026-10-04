@@ -42,3 +42,9 @@ bin/
 # Local client build output
 Client/peerai-node
 Client/peerai-node-dev
+
+# Local client secrets and generated configs (never commit keys)
+Client/peerai-node.yaml
+Client/credentials.yaml
+peerai-node.yaml
+credentials.yaml

@@ -14,6 +14,13 @@ node:
   # Leave id empty to generate and persist ~/.config/peerai/node.id.
   id: ""
 
+auth:
+  # API key for central. Leave empty and register in the local website
+  # at http://127.0.0.1:9100/manage instead. PEERAI_API_KEY also works.
+  api_key: ""
+
+# Backends are optional now. The node website at /manage manages them,
+# and a fresh install auto-detects Ollama, llama.cpp, and vLLM.
 # Simplified form: name one backend per local server. The node discovers
 # models from GET {endpoint}{api_base}/models and builds the broadcast
 # services. The broadcast shape sent to central stays unchanged.

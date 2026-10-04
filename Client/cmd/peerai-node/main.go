@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -17,6 +19,7 @@ import (
 	"peer-ai-client/internal/central"
 	"peer-ai-client/internal/config"
 	"peer-ai-client/internal/identity"
+	"peer-ai-client/internal/manage"
 	"peer-ai-client/internal/proxy"
 	"peer-ai-client/internal/server"
 )
@@ -32,10 +35,11 @@ const (
 
 func main() {
 	configPath := flag.String("config", "", "path to node YAML configuration")
+	apiKey := flag.String("api-key", strings.TrimSpace(os.Getenv("PEERAI_API_KEY")), "API key for central (or PEERAI_API_KEY)")
 	logMode := flag.String("log-mode", logDefault("PEERAI_LOG_MODE", logModeRequests), "log mode: requests or dev")
 	logFormat := flag.String("log-format", logDefault("PEERAI_LOG_FORMAT", "text"), "log format: text or json")
 	flag.Parse()
-	if err := run(*configPath, *logMode, *logFormat); err != nil {
+	if err := run(*configPath, *apiKey, *logMode, *logFormat); err != nil {
 		slog.Error("node stopped", "error", err)
 		os.Exit(1)
 	}
@@ -76,7 +80,7 @@ func logDefault(key, fallback string) string {
 	return fallback
 }
 
-func run(configPath, logMode, logFormat string) error {
+func run(configPath, apiKeyFlag, logMode, logFormat string) error {
 	if err := setupLogging(logMode, logFormat); err != nil {
 		return err
 	}
@@ -84,10 +88,60 @@ func run(configPath, logMode, logFormat string) error {
 	if err != nil {
 		return err
 	}
+	// Flag wins for the API key. The browser setup file wins over config.
+	if strings.TrimSpace(apiKeyFlag) != "" {
+		cfg.Auth.APIKey = strings.TrimSpace(apiKeyFlag)
+	}
+	credsPath, err := manage.DefaultCredentialsPath(resolved)
+	if err != nil {
+		return fmt.Errorf("resolve credentials path: %w", err)
+	}
+	setup := manage.NewSetup(credsPath)
+	creds, err := setup.Load()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(creds.CentralHost) != "" {
+		cfg.Network.CentralHost = strings.TrimSpace(creds.CentralHost)
+	}
+	if creds.CentralPort != 0 {
+		cfg.Network.CentralPort = creds.CentralPort
+	}
+	if strings.TrimSpace(apiKeyFlag) == "" && creds.KeySet() {
+		cfg.Auth.APIKey = strings.TrimSpace(creds.APIKey)
+	}
+	// Backends come from the website. File entries merge with them.
+	// A fresh install auto-detects Ollama or llama.cpp with no setup.
+	managedPath, err := manage.DefaultPath()
+	if err != nil {
+		return fmt.Errorf("resolve managed backends path: %w", err)
+	}
+	managed := manage.New(managedPath)
+	if err := managed.Load(); err != nil {
+		return err
+	}
+	autoBackends := []config.Backend(nil)
+	if len(managed.Merge(cfg.Backends)) == 0 {
+		autoCtx, autoCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		autoBackends = config.DetectResponsive(autoCtx, http.DefaultClient, config.DefaultLocalCandidates)
+		autoCancel()
+		for _, b := range autoBackends {
+			slog.Info("auto-detected backend", "component", "main", "name", b.Name, "endpoint", b.Endpoint)
+		}
+		if len(autoBackends) == 0 {
+			slog.Warn("no local backends found", "component", "main")
+		}
+	}
+	currentBackends := func() []config.Backend {
+		if merged := managed.Merge(cfg.Backends); len(merged) > 0 {
+			return merged
+		}
+		return autoBackends
+	}
 	slog.Debug("config load",
 		"component", "main",
 		"path", resolved,
-		"backends", len(cfg.Backends),
+		"backends", len(currentBackends()),
 		"services", len(cfg.Services),
 	)
 	nodeID, err := configuredNodeID(cfg.Node.ID)
@@ -105,8 +159,15 @@ func run(configPath, logMode, logFormat string) error {
 	if err != nil {
 		return err
 	}
-	listenAddr, err := identity.BuildListenAddr(tailscaleIP.String(), cfg.Network.ListenPort)
+	// Bind the first free port from the configured one upward.
+	// A busy default port no longer stops the node.
+	ln, listenPort, err := listenWithFallback(cfg.Network.ListenHost, cfg.Network.ListenPort)
 	if err != nil {
+		return err
+	}
+	listenAddr, err := identity.BuildListenAddr(tailscaleIP.String(), listenPort)
+	if err != nil {
+		_ = ln.Close()
 		return err
 	}
 	slog.Debug("node identity",
@@ -122,6 +183,27 @@ func run(configPath, logMode, logFormat string) error {
 		"version", central.Version,
 		"log_mode", logMode,
 	)
+	centralBase := "http://" + net.JoinHostPort(cfg.Network.CentralHost, strconv.Itoa(cfg.Network.CentralPort))
+	manageURL := "http://127.0.0.1:" + strconv.Itoa(listenPort) + "/manage"
+	if strings.TrimSpace(cfg.Auth.APIKey) == "" {
+		slog.Warn("node has no API key",
+			"component", "main",
+			"setup", manageURL,
+			"signup", centralBase+"/app",
+		)
+		slog.Info("finish setup in the browser",
+			"component", "main",
+			"step_1", "open "+manageURL,
+			"step_2", "register with central and add services",
+			"step_3", "restart the node",
+		)
+	} else {
+		slog.Info("next steps",
+			"component", "main",
+			"manage_ui", manageURL,
+			"share_at", centralBase+"/app",
+		)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -143,13 +225,14 @@ func run(configPath, logMode, logFormat string) error {
 	var discMu sync.RWMutex
 	discovered := []config.Service(nil)
 	discover := func(ctx context.Context) {
-		if len(cfg.Backends) == 0 {
+		current := currentBackends()
+		if len(current) == 0 {
 			return
 		}
 		discCtx, cancel := context.WithTimeout(ctx, config.DefaultDiscoverTimeout)
 		defer cancel()
-		found := config.DiscoverAll(discCtx, http.DefaultClient, cfg.Backends)
-		if len(cfg.Backends) > 0 && len(found) == 0 {
+		found := config.DiscoverAll(discCtx, http.DefaultClient, current)
+		if len(current) > 0 && len(found) == 0 {
 			slog.Warn("backend discovery found no models", "component", "discovery")
 			return
 		}
@@ -158,7 +241,7 @@ func run(configPath, logMode, logFormat string) error {
 		discMu.Unlock()
 		slog.Debug("backend discovery ok",
 			"component", "discovery",
-			"backends", len(cfg.Backends),
+			"backends", len(current),
 			"services", len(found),
 			"models", countModels(found),
 		)
@@ -185,10 +268,12 @@ func run(configPath, logMode, logFormat string) error {
 	proxyHandler := proxy.NewHandlerFunc(proxyServices, nodeID)
 	nodeServer := server.New(server.Options{
 		ListenHost:  cfg.Network.ListenHost,
-		ListenPort:  cfg.Network.ListenPort,
+		ListenPort:  listenPort,
 		NodeID:      nodeID,
 		TailscaleIP: tailscaleIP.String(),
 		Version:     central.Version,
+		Manage:      managed,
+		Setup:       setup,
 		Proxy: server.ProxyHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			proxyHandler.ServeHTTP(w, r)
 		}),
@@ -201,6 +286,7 @@ func run(configPath, logMode, logFormat string) error {
 	if err != nil {
 		return err
 	}
+	centralClient.WithAPIKey(cfg.Auth.APIKey)
 	payload := func() central.Payload {
 		probe(ctx)
 		discover(ctx)
@@ -225,7 +311,7 @@ func run(configPath, logMode, logFormat string) error {
 
 	errs := make(chan error, 2)
 	go func() {
-		err := nodeServer.ListenAndServe()
+		err := nodeServer.Serve(ln)
 		if err != nil && !errors.Is(err, context.Canceled) {
 			errs <- err
 		}
@@ -259,6 +345,30 @@ func configuredNodeID(value string) (string, error) {
 		return value, nil
 	}
 	return identity.LoadOrCreateNodeID("")
+}
+
+// maxPortFallback is the extra ports tried after the configured one.
+const maxPortFallback = 9
+
+// listenWithFallback binds host:port, or the next free port upward.
+// A busy default port picks 9101 instead of stopping the node.
+func listenWithFallback(host string, port int) (net.Listener, int, error) {
+	var err error
+	var ln net.Listener
+	for p := port; p <= port+maxPortFallback; p++ {
+		ln, err = net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(p)))
+		if err == nil {
+			if p != port {
+				slog.Warn("listen port busy, using next free port",
+					"component", "main",
+					"want", port,
+					"got", p,
+				)
+			}
+			return ln, p, nil
+		}
+	}
+	return nil, 0, fmt.Errorf("listen on %s:%d: %w", host, port, err)
 }
 
 type configServiceAdapter struct {

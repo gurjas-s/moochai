@@ -62,6 +62,23 @@ func TestRegisterRequiresOK(t *testing.T) {
 	}
 }
 
+func TestPostSendsBearerKey(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	client := &Client{baseURL: server.URL, httpClient: server.Client()}
+	client.WithAPIKey("peerai_test")
+	if err := client.Register(context.Background(), Payload{}); err != nil {
+		t.Fatal(err)
+	}
+	if gotAuth != "Bearer peerai_test" {
+		t.Fatalf("Authorization = %q, want Bearer key", gotAuth)
+	}
+}
+
 func TestRunRetriesAndStops(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

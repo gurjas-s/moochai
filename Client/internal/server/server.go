@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"peer-ai-client/internal/config"
+	"peer-ai-client/internal/manage"
 )
 
 // ProxyHandler handles an OpenAI route after the listener has accepted it.
@@ -72,6 +73,14 @@ type Options struct {
 
 	// Models returns the current configured services for GET /v1/models.
 	Models func() []config.Service
+
+	// Manage holds website-managed backends. Nil disables /manage routes.
+	// The website accepts loopback callers only.
+	Manage *manage.Store
+
+	// Setup holds the one-time browser setup (central + API key).
+	// Nil disables the setup tab. Loopback callers only.
+	Setup *manage.SetupStore
 
 	// Routes overrides the OpenAI route set. Nil/empty uses DefaultOpenAIRoutes.
 	Routes []Route
@@ -249,6 +258,10 @@ func (s *Server) ListenAndServeWithGracefulShutdown(ctx context.Context, shutdow
 
 func (s *Server) register() {
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
+
+	if s.opts.Manage != nil || s.opts.Setup != nil {
+		s.registerManage()
+	}
 
 	routes := s.opts.Routes
 	if len(routes) == 0 {

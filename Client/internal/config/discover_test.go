@@ -168,6 +168,26 @@ func TestDiscoverAllSkipsFailedBackends(t *testing.T) {
 	}
 }
 
+func TestDetectResponsiveKeepsLiveBackends(t *testing.T) {
+	live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"m"}]}`))
+	}))
+	defer live.Close()
+	dead := httptest.NewServer(http.NotFoundHandler())
+	defer dead.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got := DetectResponsive(ctx, live.Client(), []Backend{
+		{Name: "live", Endpoint: live.URL},
+		{Name: "dead", Endpoint: dead.URL},
+		{Name: "bad", Endpoint: "://bad"},
+	})
+	if len(got) != 1 || got[0].Name != "live" {
+		t.Fatalf("responsive = %+v, want only live", got)
+	}
+}
+
 func TestBackendValidateRejectsBadFields(t *testing.T) {
 	for _, backend := range []Backend{
 		{},

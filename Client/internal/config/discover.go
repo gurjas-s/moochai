@@ -22,6 +22,40 @@ import (
 // DefaultDiscoverTimeout bounds one backend discovery round.
 const DefaultDiscoverTimeout = 5 * time.Second
 
+// DefaultLocalCandidates are the backends the node probes when the user
+// configures none. Common local ports per backend type.
+var DefaultLocalCandidates = []Backend{
+	{Name: "ollama", Endpoint: "http://127.0.0.1:11434", Provider: ProviderOllama, Expose: []string{"*"}},
+	{Name: "llamacpp", Endpoint: "http://127.0.0.1:8080", Provider: ProviderLlamaCPP, Expose: []string{"*"}},
+	{Name: "vllm", Endpoint: "http://127.0.0.1:8000", Provider: ProviderVLLM, Expose: []string{"*"}},
+	{Name: "lm-studio", Endpoint: "http://127.0.0.1:1234", Provider: ProviderOpenAILike, Expose: []string{"*"}},
+}
+
+// DetectResponsive returns the candidates that answer GET models.
+// The node calls this when no backend is configured, so a fresh install
+// finds Ollama or llama.cpp with no setup. A 200 with a model list counts.
+func DetectResponsive(ctx context.Context, client *http.Client, candidates []Backend) []Backend {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	var out []Backend
+	for _, backend := range candidates {
+		if err := backend.Validate(); err != nil {
+			continue
+		}
+		func() {
+			reqCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			entries, err := fetchModels(reqCtx, client, backend)
+			if err != nil || len(entries) == 0 {
+				return
+			}
+			out = append(out, backend)
+		}()
+	}
+	return out
+}
+
 type modelEntry struct {
 	ID            string         `json:"id"`
 	MaxModelLen   *int           `json:"max_model_len"`

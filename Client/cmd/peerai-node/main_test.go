@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"testing"
 )
 
@@ -49,5 +50,22 @@ func TestLogDefaultReadsEnv(t *testing.T) {
 	}
 	if got := logDefault("PEERAI_LOG_MODE_TEST_EMPTY", "requests"); got != "requests" {
 		t.Errorf("logDefault fallback = %q, want requests", got)
+	}
+}
+
+func TestListenWithFallbackSkipsBusyPort(t *testing.T) {
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer busy.Close()
+	busyPort := busy.Addr().(*net.TCPAddr).Port
+	ln, port, err := listenWithFallback("127.0.0.1", busyPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if port == busyPort {
+		t.Fatalf("port = %d, want next free port", port)
 	}
 }

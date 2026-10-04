@@ -18,6 +18,7 @@ const DefaultHeartbeatInterval = 15 * time.Second
 type Config struct {
 	Network  Network   `yaml:"network"`
 	Node     Node      `yaml:"node"`
+	Auth     Auth      `yaml:"auth"`
 	Services []Service `yaml:"services"`
 	// Backends is the simplified config form. Each entry names one local
 	// backend. The node discovers models from the backend and builds the
@@ -62,6 +63,12 @@ func (n *Network) UnmarshalYAML(value *yaml.Node) error {
 type Node struct {
 	Name string `yaml:"name"`
 	ID   string `yaml:"id"`
+}
+
+// Auth holds the API key for central. The user registers in the local
+// website. The node saves the key. The user never edits this by hand.
+type Auth struct {
+	APIKey string `yaml:"api_key"`
 }
 
 type ServiceType string
@@ -239,6 +246,9 @@ func Load(path string) (Config, string, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, "", fmt.Errorf("parse config %q: %w", resolved, err)
+	}
+	if envKey := strings.TrimSpace(os.Getenv("PEERAI_API_KEY")); envKey != "" {
+		cfg.Auth.APIKey = envKey
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, "", fmt.Errorf("validate config %q: %w", resolved, err)

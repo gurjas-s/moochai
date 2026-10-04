@@ -36,6 +36,7 @@ type Payload struct {
 
 type Client struct {
 	baseURL    string
+	apiKey     string
 	httpClient *http.Client
 	retry      RetryPolicy
 	logger     *slog.Logger
@@ -67,6 +68,12 @@ func (c *Client) WithLogger(l *slog.Logger) *Client {
 	return c
 }
 
+// WithAPIKey sets the Bearer key for register and heartbeat.
+func (c *Client) WithAPIKey(key string) *Client {
+	c.apiKey = key
+	return c
+}
+
 // log returns the active logger. It never returns nil.
 func (c *Client) log() *slog.Logger {
 	if c == nil || c.logger == nil {
@@ -93,6 +100,9 @@ func (c *Client) post(ctx context.Context, path string, payload Payload) error {
 		return fmt.Errorf("create central request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("send central request: %w", err)
