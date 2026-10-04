@@ -84,7 +84,12 @@ func TestChatTranslatesNonStreamingResponse(t *testing.T) {
 
 func TestChatStreamRecordsRequest(t *testing.T) {
 	node := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n\n")
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"include_usage":true`) {
+			t.Errorf("upstream request must ask for usage: %s", body)
+		}
+		_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\n"+
+			"data: {\"choices\":[],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2}}\n\ndata: [DONE]\n\n")
 	}))
 	t.Cleanup(node.Close)
 	reg := registry.New(time.Minute)
@@ -111,7 +116,8 @@ func TestChatStreamRecordsRequest(t *testing.T) {
 	}
 	select {
 	case r := <-got:
-		if r.Node != "n1" || r.Model != "qwen" || r.Status != http.StatusOK || r.Path != "/api/chat" {
+		if r.Node != "n1" || r.Model != "qwen" || r.Status != http.StatusOK || r.Path != "/api/chat" ||
+			r.CompletionTokens == nil || *r.CompletionTokens != 2 {
 			t.Fatalf("row = %+v", r)
 		}
 	case <-time.After(5 * time.Second):
