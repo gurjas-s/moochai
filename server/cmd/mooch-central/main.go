@@ -20,6 +20,7 @@ import (
 	"mooch-serv/internal/app"
 	"mooch-serv/internal/feed"
 	"mooch-serv/internal/join"
+	"mooch-serv/internal/ollama"
 	"mooch-serv/internal/registry"
 	"mooch-serv/internal/router"
 	"mooch-serv/internal/tui"
@@ -111,6 +112,7 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 	mux := http.NewServeMux()
 	api.New(reg, f).Register(mux)
 	router.New(reg, f).Register(mux)
+	ollama.New(reg).Register(mux)
 	app.Register(mux)
 	join.New(binDir).Register(mux)
 	go expireNodesLoop(ctx, reg, f, ttl/3)

@@ -46,3 +46,5 @@ Client/mooch-node-dev
 # Local server build output
 server/dist/
 server/mooch-central
+
+mooch-node.yaml
