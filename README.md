@@ -105,11 +105,12 @@ Central also has an Ollama-compatible API (`/api/tags`, `/api/show`, `/api/chat`
 Central shows a terminal dashboard when it runs in a terminal:
 
 ```text
-╭───────────────────────────────────╮╭──────────────────────────────────────────────────────────╮
-│  ███╗   ███╗ ██████╗  ██████╗ ... ││ NODES 2 connected                                        │
-│  ████╗ ████║██╔═══██╗██╔═══██╗... ││ ● gpu-box  100.64.0.7   1s ago  qwen2.5:7b, llama3.1:8b  │
-│  ...                              ││ ● laptop   100.64.0.9   3s ago  whisper-large-v3         │
-╰───────────────────────────────────╯╰──────────────────────────────────────────────────────────╯
+╭───────────────────────────────────╮╭──────────────────────────────╮╭──────────────────────────────────╮
+│  ███╗   ███╗ ██████╗  ██████╗ ... ││ NODES 2 connected            ││ MODELS 3 available               │
+│  ████╗ ████║██╔═══██╗██╔═══██╗... ││ ● gpu-box  100.64.0.7  1s ago││ llama3.1:8b       gpu-box        │
+│  ...                              ││ ● laptop   100.64.0.9  3s ago││ qwen2.5:7b        gpu-box, laptop│
+│                                   ││                              ││ whisper-large-v3  laptop         │
+╰───────────────────────────────────╯╰──────────────────────────────╯╰──────────────────────────────────╯
  ● tailnet 100.64.0.1:8080   OpenAI base URL http://100.64.0.1:8080/v1   join curl -fsSL …
 ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
 │ CONSOLE                                                                                      │
@@ -120,7 +121,8 @@ Central shows a terminal dashboard when it runs in a terminal:
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
-- **NODES** shows the live nodes and the models of each node. A yellow dot shows that a node has not sent a heartbeat for 20 seconds.
+- **NODES** shows the live nodes. A yellow dot shows that a node has not sent a heartbeat for 20 seconds.
+- **MODELS** shows each available model and the nodes that serve the model, separated by commas.
 - **CONSOLE** shows the events: nodes that join or leave, routes, requests, and responses.
   REQ and RESP lines show the direction of each message, for example `[ laptop → gpu-box ]`.
   The number after each tag (`#1`) connects the lines of one request.

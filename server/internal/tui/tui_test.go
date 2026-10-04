@@ -16,6 +16,8 @@ func TestView(t *testing.T) {
 	reg := registry.New(time.Minute)
 	reg.Upsert(registry.Node{NodeID: "n1", Name: "gpu-box", TailscaleIP: "100.64.0.7",
 		Services: []registry.Service{{Models: []string{"qwen"}, Healthy: true}}})
+	reg.Upsert(registry.Node{NodeID: "n2", Name: "mini", TailscaleIP: "100.64.0.8",
+		Services: []registry.Service{{Models: []string{"qwen"}, Healthy: true}}})
 	m := &model{reg: reg, addr: "100.64.0.1:8080", tailnet: true, now: time.Now()}
 	m.Init()
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
@@ -33,7 +35,7 @@ func TestView(t *testing.T) {
 		}
 	}
 
-	// A wide terminal shows the logo and the NODES box, with the models of each node, on one row.
+	// A wide terminal shows the logo, the NODES box, and the MODELS box on one row.
 	m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
 	view = ansi.Strip(m.View())
 	top := strings.Split(view, "\n")[2]
@@ -41,6 +43,9 @@ func TestView(t *testing.T) {
 		if !strings.Contains(top, want) {
 			t.Fatalf("top row misses %q:\n%s", want, view)
 		}
+	}
+	if !strings.Contains(view, "qwen  gpu-box, mini") {
+		t.Fatalf("MODELS box does not list the machines of qwen:\n%s", view)
 	}
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
 
