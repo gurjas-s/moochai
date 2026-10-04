@@ -48,8 +48,8 @@ type Feed struct {
 	sep   string // goes before and after the text that the dashboard can cut
 	// members is true when the feed prints JOIN and LEAVE. The dashboard shows the nodes in its NODES box.
 	members bool
-	// Details adds the method and the path to REQ lines, and the status to RESP lines.
-	// RESP lines always show an error status.
+	// Details adds the method and the path to REQUEST lines, and the status to RESPONSE lines.
+	// RESPONSE lines always show an error status.
 	Details bool
 }
 
@@ -152,7 +152,7 @@ func (f *Feed) Request(id int, from, to, method, path, preview string) {
 		keep += " " + f.paint(bold+blue, method)
 		text += " " + f.paint(grey, path)
 	}
-	f.message(blue, "REQ", keep, text, "", id)
+	f.message(blue, "REQUEST", keep, text, "", id)
 }
 
 // Response prints the direction, the answer, and the duration in a frame.
@@ -169,7 +169,7 @@ func (f *Feed) Response(id int, from, to string, status int, d time.Duration, pr
 	if f.Details || status >= 400 {
 		keep += " " + f.paint(bold+code, fmt.Sprint(status))
 	}
-	f.message(code, "RESP", keep, f.text(preview), f.paint(grey, "in "+d.Round(time.Millisecond).String()), id)
+	f.message(code, "RESPONSE", keep, f.text(preview), f.paint(grey, "in "+d.Round(time.Millisecond).String()), id)
 }
 
 // chat returns the direction of a message, for example "[ laptop → gpu-box ]".
@@ -220,7 +220,7 @@ func (f *Feed) message(code, tag, keep, text, tail string, id int) {
 	pad, rule := strings.Repeat(" ", 10), strings.Repeat("─", frameWidth)
 	f.printf("%s%s\n%s  %s %s %s\n%s%s\n",
 		pad, f.paint(code, "╭"+rule),
-		f.paint(dim, f.now().Format("15:04:05")), f.paint(code, "│"), f.paint(bold+code, fmt.Sprintf("%-5s", tag)), msg,
+		f.paint(dim, f.now().Format("15:04:05")), f.paint(code, "│"), f.paint(bold+code, fmt.Sprintf("%-8s", tag)), msg,
 		pad, f.paint(code, "╰"+rule))
 }
 

@@ -115,25 +115,25 @@ Central shows a terminal dashboard when it runs in a terminal:
 ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
 │ CONSOLE                                                                                      │
 │           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:09  │ MODEL [ laptop → gpu-box ] qwen2.5:7b                                       #1 │ │
+│ 12:00:09  │ MODEL    [ laptop → gpu-box ] qwen2.5:7b                                    #1 │ │
 │           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 │           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:09  │ REQ   [ laptop → gpu-box ] "Hello"                                          #1 │ │
+│ 12:00:09  │ REQUEST  [ laptop → gpu-box ] "Hello"                                       #1 │ │
 │           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 │           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:10  │ RESP  [ gpu-box → laptop ] "Hello! How can I help you?" in 812ms            #1 │ │
+│ 12:00:10  │ RESPONSE [ gpu-box → laptop ] "Hello! How can I help you?" in 812ms         #1 │ │
 │           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 - **NODES** shows the live nodes. A yellow dot shows that a node has not sent a heartbeat for 20 seconds.
 - **MODELS** shows each available model and the nodes that serve the model, separated by commas.
-- **CONSOLE** shows each request in three frames: MODEL (yellow), REQ (blue), and RESP (green, or red for an error).
+- **CONSOLE** shows each request in three frames: MODEL (yellow), REQUEST (blue), and RESPONSE (green, or red for an error).
   Each line shows the direction, for example `[ laptop → gpu-box ]`.
-  MODEL shows the selected model. REQ shows the prompt. RESP shows the answer and the duration.
+  MODEL shows the selected model. REQUEST shows the prompt. RESPONSE shows the answer and the duration.
   The number at the right end of a frame (`#1`) connects the frames of one request.
   When a line is too long, the dashboard cuts the prompt or the answer first.
-  Use `-details` to also show the method, the path, and the status. RESP always shows an error status.
+  Use `-details` to also show the method, the path, and the status. RESPONSE always shows an error status.
 
 Use these keys in the dashboard:
 

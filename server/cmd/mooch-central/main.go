@@ -35,7 +35,7 @@ func main() {
 	debug := flag.Bool("debug", false, "log each heartbeat")
 	verbose := flag.Bool("verbose", false, "print plain log lines instead of the coloured feed")
 	plain := flag.Bool("plain", false, "print the coloured feed without the dashboard")
-	details := flag.Bool("details", false, "show the method, the path, and the status on REQ and RESP lines")
+	details := flag.Bool("details", false, "show the method, the path, and the status on REQUEST and RESPONSE lines")
 	flag.Parse()
 
 	// The feed replaces the info logs. Warnings and errors still go to the log output.
