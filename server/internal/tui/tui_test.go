@@ -9,6 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"mooch-serv/internal/feed"
+
 	"mooch-serv/internal/registry"
 )
 
@@ -68,19 +70,17 @@ func TestWrap(t *testing.T) {
 		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 
-	// A frame border fills the width and keeps its colour.
+	// A frame border fills the width, closes on the right, and keeps its colour.
 	got = wrap("          \033[34m╭"+strings.Repeat("─", 60)+"\033[0m", 30)
-	if len(got) != 1 || ansi.Strip(got[0]) != "          ╭"+strings.Repeat("─", 19) || !strings.HasPrefix(got[0], "          \033[34m╭") {
+	if len(got) != 1 || ansi.Strip(got[0]) != "          ╭"+strings.Repeat("─", 18)+"╮" || !strings.HasPrefix(got[0], "          \033[34m╭") {
 		t.Fatalf("border = %q", got)
 	}
 
-	// A line in a message frame keeps the rail on its continuation lines.
-	got = wrap("12:00:00  │ REQ   "+strings.Repeat("x", 20), 30)
-	want = []string{
-		"12:00:00  │ REQ   xxxxxxxxxxxx",
-		"          │       xxxxxxxx",
-	}
-	if ansi.Strip(strings.Join(got, "\n")) != strings.Join(want, "\n") {
-		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	// A long framed line cuts only the text and keeps the direction, the path, and the status.
+	line := "12:00:00  │ RESP  [ a → b ] 200" + feed.Cut + `"` + strings.Repeat("x", 80) + `"` + feed.Cut + "in 1s · #1"
+	got = wrap(line, 60)
+	wantLine := "12:00:00  │ RESP  [ a → b ] 200 \"" + strings.Repeat("x", 13) + "… in 1s · #1 │"
+	if len(got) != 1 || ansi.Strip(got[0]) != wantLine || ansi.StringWidth(got[0]) != 60 {
+		t.Fatalf("framed line =\n%q\nwant\n%q", got, wantLine)
 	}
 }

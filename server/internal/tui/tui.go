@@ -291,31 +291,53 @@ func (m *model) console(width, height int) string {
 	return strings.Join(append(view, make([]string, height-len(view))...), "\n")
 }
 
-// The feed starts the borders of a message frame with these texts.
-var frameTop, frameBottom = strings.Repeat(" ", 10) + "╭─", strings.Repeat(" ", 10) + "╰─"
-
 // wrap cuts line into screen lines of width. Continuation lines start under the message, after the time and tag.
-// Inside a message frame, continuation lines keep the rail and its colour.
-// A frame border fills the full width.
+// A line of a message frame does not wrap: frame redraws it at width.
 func wrap(line string, width int) []string {
-	if plain := ansi.Strip(line); strings.HasPrefix(plain, frameTop) || strings.HasPrefix(plain, frameBottom) {
-		i := strings.IndexAny(line, "╭╰") + len("╭") // Keep the spaces, the colour, and the corner.
-		return []string{line[:i] + strings.Repeat("─", max(0, width-11)) + "\033[0m"}
+	if l, ok := frame(line, width); ok {
+		return []string{l}
 	}
-	indent := strings.Repeat(" ", 16) // "15:04:05  ROUTE "
-	if r := []rune(ansi.Strip(line)); len(r) > 10 && r[10] == '│' {
-		rail := ansi.TruncateLeft(ansi.Truncate(line, 11, ""), 10, "")
-		indent = strings.Repeat(" ", 10) + rail + "\033[0m" + strings.Repeat(" ", 7) // "15:04:05  │ REQ   "
-	}
-	n := ansi.StringWidth(indent)
-	if ansi.StringWidth(line) <= width || width <= n+10 {
+	const indent = 16 // "15:04:05  ROUTE "
+	if ansi.StringWidth(line) <= width || width <= indent+10 {
 		return strings.Split(ansi.Hardwrap(line, width, true), "\n")
 	}
 	out := []string{ansi.Truncate(line, width, "")}
-	for _, l := range strings.Split(ansi.Hardwrap(ansi.TruncateLeft(line, width, ""), width-n, true), "\n") {
-		out = append(out, indent+l)
+	for _, l := range strings.Split(ansi.Hardwrap(ansi.TruncateLeft(line, width, ""), width-indent, true), "\n") {
+		out = append(out, strings.Repeat(" ", indent)+l)
 	}
 	return out
+}
+
+// frame redraws a line of a message frame at width. The borders fill the width and close on the right.
+// A long text line keeps its important parts and cuts only the text between the feed.Cut marks.
+// frame reports false when line is not part of a frame.
+func frame(line string, width int) (string, bool) {
+	plain := []rune(ansi.Strip(line))
+	if len(plain) <= 10 || !strings.ContainsRune("╭╰│", plain[10]) || width < 20 {
+		return "", false
+	}
+	edge := ansi.TruncateLeft(ansi.Truncate(line, 11, ""), 10, "") // the first border character with its colour
+	colour := edge[:strings.IndexAny(edge, "╭╰│")]
+	pad := strings.Repeat(" ", 10)
+	switch plain[10] {
+	case '╭':
+		return pad + colour + "╭" + strings.Repeat("─", width-12) + "╮\033[0m", true
+	case '╰':
+		return pad + colour + "╰" + strings.Repeat("─", width-12) + "╯\033[0m", true
+	}
+	keep, text, tail := line, "", ""
+	if parts := strings.Split(line, feed.Cut); len(parts) == 3 {
+		keep, text, tail = parts[0], parts[1], parts[2]
+	}
+	room := width - 2 - ansi.StringWidth(keep) - ansi.StringWidth(tail) - 2 // 2 for " │", 2 for the spaces around text
+	content := keep
+	for _, part := range []string{ansi.Truncate(text, max(0, room), "…"), tail} {
+		if ansi.StringWidth(part) > 0 {
+			content += " " + part
+		}
+	}
+	content = ansi.Truncate(content, width-2, "…")
+	return content + strings.Repeat(" ", width-1-ansi.StringWidth(content)) + colour + "│\033[0m", true
 }
 
 func (m *model) footer() string {

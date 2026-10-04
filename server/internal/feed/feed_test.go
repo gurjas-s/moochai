@@ -17,7 +17,7 @@ func TestFeedLines(t *testing.T) {
 		Services: []registry.Service{{Models: []string{"a", "b"}}}})
 	f.Left(registry.Node{NodeID: "n2"})
 	id := f.Route("laptop", "a", []string{"gpu-box"}, "gpu-box")
-	f.Request(id, "laptop", "gpu-box", "POST /v1/chat/completions", "hi")
+	f.Request(id, "laptop", "gpu-box", "POST", "/v1/chat/completions", "hi")
 	f.Response(id, "gpu-box", "laptop", 200, 1234*time.Millisecond, "")
 	want := `09:05:00  JOIN  gpu-box 100.64.0.7 · models: a, b
 09:05:00  LEAVE n2 no heartbeat
@@ -25,10 +25,10 @@ func TestFeedLines(t *testing.T) {
 09:05:00  │ ROUTE #1 laptop asks for a → gpu-box · served by: gpu-box
           ╰────────────────────────────────────────────────────────────
           ╭────────────────────────────────────────────────────────────
-09:05:00  │ REQ   [ laptop → gpu-box ] "hi" POST /v1/chat/completions · #1
+09:05:00  │ REQ   [ laptop → gpu-box ] POST "hi" /v1/chat/completions · #1
           ╰────────────────────────────────────────────────────────────
           ╭────────────────────────────────────────────────────────────
-09:05:00  │ RESP  [ gpu-box → laptop ] (no text) 200 in 1.234s · #1
+09:05:00  │ RESP  [ gpu-box → laptop ] 200 (no text) in 1.234s · #1
           ╰────────────────────────────────────────────────────────────
 `
 	if out.String() != want {

@@ -89,7 +89,7 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 	switch mode {
 	case modeDashboard:
 		ui = tui.New(ctx, reg, ln.Addr().String(), tailscaleIP.IsValid())
-		f = feed.NewColor(ui)
+		f = feed.NewDashboard(ui)
 		// The dashboard owns the terminal, so warnings go to the console.
 		slog.SetDefault(slog.New(slog.NewTextHandler(consoleLog{ui}, &slog.HandlerOptions{Level: level,
 			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {

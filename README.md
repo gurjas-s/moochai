@@ -115,15 +115,15 @@ Central shows a terminal dashboard when it runs in a terminal:
 ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
 │ CONSOLE                                                                                      │
 │ 12:00:01  JOIN  gpu-box 100.64.0.7 · models: qwen2.5:7b, llama3.1:8b                         │
-│           ╭────────────────────────────────────────────────────────────────────────────────── │
-│ 12:00:09  │ ROUTE #1 laptop asks for qwen2.5:7b → gpu-box · served by: gpu-box                 │
-│           ╰────────────────────────────────────────────────────────────────────────────────── │
-│           ╭────────────────────────────────────────────────────────────────────────────────── │
-│ 12:00:09  │ REQ   [ laptop → gpu-box ] "Hello" POST /v1/chat/completions · #1                  │
-│           ╰────────────────────────────────────────────────────────────────────────────────── │
-│           ╭────────────────────────────────────────────────────────────────────────────────── │
-│ 12:00:10  │ RESP  [ gpu-box → laptop ] "Hello! How can I help you?" 200 in 812ms · #1          │
-│           ╰────────────────────────────────────────────────────────────────────────────────── │
+│           ╭────────────────────────────────────────────────────────────────────────────────╮ │
+│ 12:00:09  │ ROUTE #1 laptop asks for qwen2.5:7b → gpu-box · served by: gpu-box             │ │
+│           ╰────────────────────────────────────────────────────────────────────────────────╯ │
+│           ╭────────────────────────────────────────────────────────────────────────────────╮ │
+│ 12:00:09  │ REQ   [ laptop → gpu-box ] POST "Hello" /v1/chat/completions · #1              │ │
+│           ╰────────────────────────────────────────────────────────────────────────────────╯ │
+│           ╭────────────────────────────────────────────────────────────────────────────────╮ │
+│ 12:00:10  │ RESP  [ gpu-box → laptop ] 200 "Hello! How can I help you?" in 812ms · #1      │ │
+│           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -133,6 +133,8 @@ Central shows a terminal dashboard when it runs in a terminal:
   A frame encloses each route and each message between two nodes: yellow for a route, blue for a request, green for a response, and red for an error response.
   REQ and RESP lines show the direction of each message, for example `[ laptop → gpu-box ]`.
   The number at the end of a line (`#1`) connects a request to its response.
+  When a line is too long, the dashboard cuts the message text and the path first.
+  The direction, the method, the status code, the duration, and the number stay on the line.
 
 Use these keys in the dashboard:
 

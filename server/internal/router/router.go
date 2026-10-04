@@ -114,7 +114,7 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
 	}
 	from, to := h.requester(r), feed.Name(node)
 	id := h.feed.Route(from, req.Model, available, to)
-	h.feed.Request(id, from, to, r.Method+" "+r.URL.Path, feed.Preview(body))
+	h.feed.Request(id, from, to, r.Method, r.URL.Path, feed.Preview(body))
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	w = rec

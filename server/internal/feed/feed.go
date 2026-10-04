@@ -30,6 +30,10 @@ const (
 
 const previewLen = 120
 
+// Cut marks the start and the end of the text in a framed line that the dashboard can cut.
+// The text before the first Cut and after the second Cut is important, so the dashboard keeps it.
+const Cut = "\x1f"
+
 // frameWidth is the length of the top and bottom borders of a message frame.
 const frameWidth = 60
 
@@ -40,6 +44,7 @@ type Feed struct {
 	color bool
 	now   func() time.Time
 	reqID int
+	sep   string // goes before and after the text that the dashboard can cut
 }
 
 // New returns a Feed that writes to w.
@@ -51,12 +56,13 @@ func New(w io.Writer) *Feed {
 			color = true
 		}
 	}
-	return &Feed{w: w, color: color, now: time.Now}
+	return &Feed{w: w, color: color, now: time.Now, sep: " "}
 }
 
-// NewColor returns a Feed that always writes colour codes to w.
-func NewColor(w io.Writer) *Feed {
-	return &Feed{w: w, color: true, now: time.Now}
+// NewDashboard returns a Feed for the central dashboard. The Feed always writes colour codes to w.
+// Framed lines mark the text that the dashboard can cut with Cut, so the dashboard can fit each line to its width.
+func NewDashboard(w io.Writer) *Feed {
+	return &Feed{w: w, color: true, now: time.Now, sep: Cut}
 }
 
 // Name returns the display name of node.
@@ -118,25 +124,26 @@ func (f *Feed) Route(from, model string, available []string, to string) int {
 	f.reqID++
 	id := f.reqID
 	f.mu.Unlock()
-	f.message(yellow, "ROUTE", "%s %s asks for %s %s %s %s", f.paint(dim, fmt.Sprintf("#%d", id)), f.paint(cyan, from),
-		f.paint(magenta, model), f.paint(dim, "→"), f.paint(cyan, to), f.paint(grey, "· served by: "+strings.Join(available, ", ")))
+	f.message(yellow, "ROUTE", fmt.Sprintf("%s %s asks for %s %s %s", f.paint(dim, fmt.Sprintf("#%d", id)), f.paint(cyan, from),
+		f.paint(magenta, model), f.paint(dim, "→"), f.paint(cyan, to)), f.paint(grey, "· served by: "+strings.Join(available, ", ")), "")
 	return id
 }
 
-// Request prints the direction, the prompt, and the path of the forwarded request in a frame.
+// Request prints the direction, the method, the prompt, and the path of the forwarded request in a frame.
 // The request number at the end connects the request to its response.
-func (f *Feed) Request(id int, from, to, path, preview string) {
-	f.message(blue, "REQ", "%s %s %s", f.chat(blue, from, to), f.text(preview), f.paint(grey, fmt.Sprintf("%s · #%d", path, id)))
+func (f *Feed) Request(id int, from, to, method, path, preview string) {
+	f.message(blue, "REQ", f.chat(blue, from, to)+" "+f.paint(bold+blue, method), f.text(preview)+" "+f.paint(grey, path),
+		f.paint(grey, fmt.Sprintf("· #%d", id)))
 }
 
-// Response prints the direction, the answer, the status, and the duration in a frame.
+// Response prints the direction, the status, the answer, and the duration in a frame.
 func (f *Feed) Response(id int, from, to string, status int, d time.Duration, preview string) {
 	code := green
 	if status >= 400 {
 		code = red
 	}
-	f.message(code, "RESP", "%s %s %s", f.chat(code, from, to), f.text(preview),
-		f.paint(grey, fmt.Sprintf("%d in %s · #%d", status, d.Round(time.Millisecond), id)))
+	f.message(code, "RESP", f.chat(code, from, to)+" "+f.paint(bold+code, fmt.Sprint(status)), f.text(preview),
+		f.paint(grey, fmt.Sprintf("in %s · #%d", d.Round(time.Millisecond), id)))
 }
 
 // chat returns the direction of a message, for example "[ laptop → gpu-box ]".
@@ -169,11 +176,12 @@ func (f *Feed) event(code, tag, format string, args ...any) {
 
 // message prints a route or a message between two nodes in a frame: a top border, the line on a rail, and a bottom border.
 // The frame has the colour of the tag. The three lines go out in one write, so other events cannot split the frame.
-func (f *Feed) message(code, tag, format string, args ...any) {
+// keep and tail are important. The dashboard cuts only text when the line is too long.
+func (f *Feed) message(code, tag, keep, text, tail string) {
 	if f == nil {
 		return
 	}
-	msg := strings.TrimRight(fmt.Sprintf(format, args...), " ")
+	msg := strings.TrimRight(keep+f.sep+text+f.sep+tail, " ")
 	pad, rule := strings.Repeat(" ", 10), strings.Repeat("─", frameWidth)
 	f.printf("%s%s\n%s  %s %s %s\n%s%s\n",
 		pad, f.paint(code, "╭"+rule),
