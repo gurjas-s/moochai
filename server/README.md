@@ -100,6 +100,9 @@ go run ./cmd/mooch-central -addr 127.0.0.1:8080   # local use only
 
 Run `make check` before a push.
 
+`python3 fakenode.py <name> <port> <delay>` starts a fake node on loopback for local tests.
+The fake node serves the model `qwen` and waits `<delay>` seconds for each request.
+
 ## Analytics
 
 Central can keep a history of requests and heartbeats in TimescaleDB, the open-source database of Tiger Data.
@@ -174,7 +177,7 @@ Without a database, central uses rotation only.
 | GET | `/join/mooch-node.yaml` | Default node config |
 | GET | `/join/bin/{os}-{arch}` | Node binary |
 | GET | `/app` | Test UI for nodes and models |
-| GET | `/analytics` | Analytics page: givers, takers, token balance, live rate, models. Updates every 0.5 s. |
+| GET | `/analytics` | Analytics page: token share, balance, live rate, models. Updates every 0.5 s. |
 | GET | `/analytics/chart.js` | Chart.js 4.5.1 (MIT), embedded in central for the page |
 | GET | `/api/analytics/summary?window=` | Give and take of each participant. `window` is `1h`, `24h`, `7d`, or `30d`. |
 | GET | `/api/analytics/models?window=` | Use of each model |
