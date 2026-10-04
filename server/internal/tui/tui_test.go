@@ -9,7 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
-	"peerai-serv/internal/registry"
+	"mooch-serv/internal/registry"
 )
 
 func TestView(t *testing.T) {
@@ -27,11 +27,18 @@ func TestView(t *testing.T) {
 	if len(lines) != 20 {
 		t.Fatalf("view has %d lines, want 20:\n%s", len(lines), view)
 	}
-	for _, want := range []string{"PeerAI Central", "100.64.0.1:8080", "gpu-box", "qwen", "line 29"} {
+	for _, want := range []string{"Mooch.ai Central", "100.64.0.1:8080", "gpu-box", "qwen", "line 29"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("view misses %q:\n%s", want, view)
 		}
 	}
+
+	// A wide terminal shows the logo next to the central address.
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "███╗   ███╗") || !strings.Contains(view, "100.64.0.1:8080") {
+		t.Fatalf("wide view misses the logo or the address:\n%s", view)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
 
 	// Scroll up past the top. The view stops at the first line and keeps its height.
 	m.Update(tea.KeyMsg{Type: tea.KeyHome})

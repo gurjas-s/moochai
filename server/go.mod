@@ -1,4 +1,4 @@
-module peerai-serv
+module mooch-serv
 
 go 1.24.5
 

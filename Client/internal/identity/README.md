@@ -1,6 +1,6 @@
 # Identity API
 
-Package: `peer-ai-client/internal/identity`
+Package: `mooch-client/internal/identity`
 
 This document describes public functions, signatures, and usage.
 It does not describe implementation details.

@@ -11,7 +11,7 @@ import (
 )
 
 func TestLoadOrCreateNodeIDPersistsValue(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "peerai", "node.id")
+	path := filepath.Join(t.TempDir(), "mooch", "node.id")
 	first, err := LoadOrCreateNodeID(path)
 	if err != nil {
 		t.Fatalf("LoadOrCreateNodeID() error = %v", err)

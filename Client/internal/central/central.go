@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"peer-ai-client/internal/config"
+	"mooch-client/internal/config"
 )
 
 const Version = "v0.1.0-dev"

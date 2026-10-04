@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	"peerai-serv/internal/feed"
-	"peerai-serv/internal/registry"
-	"peerai-serv/internal/respond"
+	"mooch-serv/internal/feed"
+	"mooch-serv/internal/registry"
+	"mooch-serv/internal/respond"
 )
 
 const maxControlBody = 1 << 20

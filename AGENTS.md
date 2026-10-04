@@ -1,12 +1,12 @@
-# AGENTS.md — PeerAI Client
+# AGENTS.md — Mooch.ai Client
 
 ## 1. Project context
 
-PeerAI Client is a single Go binary (`go build ./cmd/peerai-node`) that runs
+Mooch.ai Client is a single Go binary (`go build ./cmd/mooch-node`) that runs
 next to local AI backends (vLLM, Ollama, llama.cpp, Whisper, and others).
 It has two jobs:
 
-- **Control plane:** advertise local services to the central PeerAI server
+- **Control plane:** advertise local services to the central Mooch.ai server
   over Tailscale (register + heartbeat with a custom JSON payload).
 - **Data plane:** listen for routed OpenAI-compatible requests from central
   and forward each request to the local backend that serves the requested
@@ -22,7 +22,7 @@ The Go module lives in `Client/`. The target layout is:
 
 ```text
 Client/
-  cmd/peerai-node/      single binary entrypoint (must build to one executable)
+  cmd/mooch-node/      single binary entrypoint (must build to one executable)
   internal/
     config/             --config flag, default paths, validation, YAML (control plane)
     identity/           Tailscale IP, persisted node.id, listen_addr (control plane)
@@ -67,14 +67,14 @@ thread tracks it.
   Tailscale network, a real central server, or real model backends in tests.
 - **Run before you push:** `gofmt -l .` (empty output), `go vet ./...`,
   `go test ./... -count=1`. A PR with failing checks is not ready.
-- **Keep the binary single.** `go build ./cmd/peerai-node` must produce
+- **Keep the binary single.** `go build ./cmd/mooch-node` must produce
   exactly one executable.
 - **Keep dependencies minimal.** Standard library first. Justify each new
   dependency in the PR summary.
 - **Do not commit secrets.** Tokens, Tailscale keys, and node IDs from
   real machines do not belong in the repository.
 - **Match the existing code style.** Small exported surface, `log/slog`
-  for logging, OpenAI-shaped JSON error envelopes with an `X-PeerAI-Node`
+  for logging, OpenAI-shaped JSON error envelopes with an `X-Mooch-Node`
   header on proxy errors.
 
 ## 5. Language: ASD-STE100 Simplified Technical English

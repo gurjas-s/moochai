@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"peerai-serv/internal/registry"
+	"mooch-serv/internal/registry"
 )
 
 func newMux() (*http.ServeMux, *registry.Registry) {

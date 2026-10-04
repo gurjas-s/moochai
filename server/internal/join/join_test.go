@@ -53,18 +53,18 @@ func TestPageShowsCommandForRequestHost(t *testing.T) {
 
 func TestScriptUsesRequestHost(t *testing.T) {
 	srv := newServer(t, t.TempDir())
-	_, body := get(t, srv.URL+"/join.sh", "peerai-central:8080")
+	_, body := get(t, srv.URL+"/join.sh", "mooch-central:8080")
 	if !strings.HasPrefix(body, "#!/bin/sh\n") {
 		t.Fatalf("script does not start with a shebang:\n%s", body)
 	}
-	if want := `CENTRAL="http://peerai-central:8080"`; !strings.Contains(body, want) {
+	if want := `CENTRAL="http://mooch-central:8080"`; !strings.Contains(body, want) {
 		t.Fatalf("script does not contain %q", want)
 	}
 }
 
 func TestConfigIsValidYAMLWithCentralAddress(t *testing.T) {
 	srv := newServer(t, t.TempDir())
-	resp, body := get(t, srv.URL+"/join/peerai-node.yaml", "100.64.1.2:8080")
+	resp, body := get(t, srv.URL+"/join/mooch-node.yaml", "100.64.1.2:8080")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status %d", resp.StatusCode)
 	}

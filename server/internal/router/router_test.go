@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"peerai-serv/internal/feed"
-	"peerai-serv/internal/registry"
+	"mooch-serv/internal/feed"
+	"mooch-serv/internal/registry"
 )
 
 type testEnv struct {

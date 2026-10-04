@@ -8,7 +8,7 @@ mkdir -p "$out"
 for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
   goos=${target%/*}
   goarch=${target#*/}
-  echo "build peerai-node-$goos-$goarch"
+  echo "build mooch-node-$goos-$goarch"
   (cd ../Client && CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch \
-    go build -trimpath -o "$out/peerai-node-$goos-$goarch" ./cmd/peerai-node)
+    go build -trimpath -o "$out/mooch-node-$goos-$goarch" ./cmd/mooch-node)
 done

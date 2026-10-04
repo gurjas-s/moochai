@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"peerai-serv/internal/registry"
+	"mooch-serv/internal/registry"
 )
 
 const (
@@ -74,7 +74,7 @@ func Models(n registry.Node) []string {
 
 // Banner prints a bordered start message with the listen address.
 func (f *Feed) Banner(addr string) {
-	lines := []string{"PEER AI HAS STARTED", "listening on " + addr}
+	lines := []string{"MOOCH.AI HAS STARTED", "listening on " + addr}
 	width := 0
 	for _, l := range lines {
 		width = max(width, utf8.RuneCountInString(l))

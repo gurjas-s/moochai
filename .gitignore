@@ -34,15 +34,15 @@ go.work.sum
 
 # go files
 go.sum
-peerai-serv
+mooch-serv
 
 # Local build output
 bin/
 
 # Local client build output
-Client/peerai-node
-Client/peerai-node-dev
+Client/mooch-node
+Client/mooch-node-dev
 
 # Local server build output
 server/dist/
-server/peerai-central
+server/mooch-central

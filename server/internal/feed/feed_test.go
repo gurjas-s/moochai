@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"peerai-serv/internal/registry"
+	"mooch-serv/internal/registry"
 )
 
 func TestFeedLines(t *testing.T) {
@@ -69,7 +69,7 @@ func TestBanner(t *testing.T) {
 	New(&out).Banner("100.64.0.1:8080")
 	want := `
 ╭────────────────────────────────╮
-│  PEER AI HAS STARTED           │
+│  MOOCH.AI HAS STARTED          │
 │  listening on 100.64.0.1:8080  │
 ╰────────────────────────────────╯
 `

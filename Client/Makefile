@@ -1,13 +1,13 @@
-# PeerAI client build targets.
+# Mooch.ai client build targets.
 # Standard mode runs with request logs.
 # Dev mode runs with debug logs.
 # Both binaries use the same optimized build.
 
-BINARY := peerai-node
-DEV_BINARY := peerai-node-dev
-PKG := ./cmd/peerai-node
+BINARY := mooch-node
+DEV_BINARY := mooch-node-dev
+PKG := ./cmd/mooch-node
 BINDIR := bin
-CONFIG ?= ./peerai-node.yaml
+CONFIG ?= ./mooch-node.yaml
 LOG_FORMAT ?= text
 
 .PHONY: help build build-dev run run-dev test vet fmt fmt-check check clean
