@@ -1,5 +1,6 @@
 # Mooch.ai central build targets.
-# run builds central and the node binaries for /join, and then starts central.
+# build makes central and the node binaries for /join.
+# run builds, starts TimescaleDB, and then starts central with analytics.
 # Set FLAGS for more central flags, for example: make run FLAGS=-details
 
 BINARY := mooch-central
@@ -13,30 +14,29 @@ FLAGS ?=
 DB_PASSWORD ?= mooch
 DB_URL ?= postgres://postgres:$(DB_PASSWORD)@127.0.0.1:5432/postgres
 
-.PHONY: help build nodes all run run-local run-plain run-db db-up db-down test test-db vet fmt fmt-check check clean
+.PHONY: help build central nodes start run run-local run-plain db-up db-down test test-db vet fmt fmt-check check clean
 
 help: # Show the targets.
 	@grep -E '^[a-z-]+:.*# .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*# "}; {printf "  %-12s %s\n", $$1, $$2}'
 
-build: # Build the central binary.
+build: central nodes # Build central and the node binaries.
+
+central: # Build only the central binary.
 	go build -o $(BINDIR)/$(BINARY) $(PKG)
 
 nodes: # Build the node binaries that /join serves.
 	./build-nodes.sh
 
-all: build nodes # Build central and the node binaries.
+start: db-up # Start the database and central on the Tailscale IPv4 with analytics on 127.0.0.1:3000. Do not build.
+	MOOCH_DB_URL=$(DB_URL) ./$(BINDIR)/$(BINARY) -addr $(ADDR) -bin $(DISTDIR) $(FLAGS)
 
-run: all # Start central on the Tailscale IPv4 with the dashboard.
-	./$(BINDIR)/$(BINARY) -addr $(ADDR) -bin $(DISTDIR) $(FLAGS)
+run: build start # Build all, and then start the database and central with analytics.
 
-run-local: build # Start central on loopback for local tests. Other machines cannot join.
+run-local: central # Start central on loopback for local tests, without the database. Other machines cannot join.
 	./$(BINDIR)/$(BINARY) -addr $(LOCAL_ADDR) -bin $(DISTDIR) $(FLAGS)
 
-run-plain: all # Start central with the event lines and without the dashboard.
+run-plain: build # Start central with the event lines and without the dashboard or the database.
 	./$(BINDIR)/$(BINARY) -addr $(ADDR) -bin $(DISTDIR) -plain $(FLAGS)
-
-run-db: all db-up # Start central on the Tailscale IPv4 with analytics in the local database.
-	MOOCH_DB_URL=$(DB_URL) ./$(BINDIR)/$(BINARY) -addr $(ADDR) -bin $(DISTDIR) $(FLAGS)
 
 db-up: # Start TimescaleDB in Docker on 127.0.0.1:5432. The data stays in the mooch-db volume.
 	@docker start mooch-db >/dev/null 2>&1 || docker run -d --name mooch-db -p 127.0.0.1:5432:5432 \

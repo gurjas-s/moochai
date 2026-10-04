@@ -41,6 +41,7 @@ func main() {
 		defaultAddr = a
 	}
 	addr := flag.String("addr", defaultAddr, "listen address, or MOOCH_ADDR. An empty host means the Tailscale IPv4 of this machine")
+	analyticsAddr := flag.String("analytics-addr", "127.0.0.1:3000", "listen address of the analytics page. Keep it on loopback, so only this machine can open it")
 	binDir := flag.String("bin", "dist", "directory with node binaries for /join")
 	ttl := flag.Duration("node-ttl", 45*time.Second, "remove a node after this time without a heartbeat")
 	debug := flag.Bool("debug", false, "log each heartbeat")
@@ -66,7 +67,7 @@ func main() {
 	case *plain || !isTerminal(os.Stdout):
 		mode = modeFeed
 	}
-	if err := run(*addr, *binDir, *ttl, mode, level, *details); err != nil {
+	if err := run(*addr, *analyticsAddr, *binDir, *ttl, mode, level, *details); err != nil {
 		slog.Error("central stopped", "error", err)
 		os.Exit(1)
 	}
@@ -80,7 +81,7 @@ const (
 	modeLog                         // plain slog lines
 )
 
-func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Level, details bool) error {
+func run(addr, analyticsAddr, binDir string, ttl time.Duration, mode outputMode, level slog.Level, details bool) error {
 	listen, tailscaleIP, err := resolveListenAddr(addr)
 	if err != nil {
 		return err
@@ -91,6 +92,13 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 	}
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	slog.Info("central listening", "addr", ln.Addr().String())
+	aln, err := net.Listen("tcp", analyticsAddr)
+	if err != nil {
+		ln.Close()
+		return fmt.Errorf("analytics listener: %w", err)
+	}
+	analyticsURL := "http://" + aln.Addr().String() + "/analytics"
+	slog.Info("analytics listening", "url", analyticsURL)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -116,6 +124,7 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 		if tailscaleIP.IsValid() {
 			printJoinInfo(os.Stdout, tailscaleIP, port)
 		}
+		fmt.Fprintf(os.Stdout, "  Analytics (this machine only): %s\n\n", analyticsURL)
 	}
 	if f != nil {
 		f.Details = details
@@ -139,10 +148,16 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 	apiHandler.Register(mux)
 	routes.Register(mux)
 	ollamaHandler.Register(mux)
-	store.Register(mux)
+	// The analytics page and its API listen only on analyticsAddr. The tailnet gets only the leaderboard.
+	analyticsMux := http.NewServeMux()
+	store.Register(analyticsMux)
+	mux.Handle("GET /leaderboard.json", analyticsMux)
 	app.Register(mux)
 	join.New(binDir).Register(mux)
 	go expireNodesLoop(ctx, reg, f, ttl/3)
+
+	asrv := &http.Server{Handler: analyticsMux, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = asrv.Serve(aln) }()
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	served := make(chan error, 1)
@@ -162,6 +177,7 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdown)
+	_ = asrv.Shutdown(shutdown)
 	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

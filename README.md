@@ -50,7 +50,7 @@ Start central on one computer of the tailnet:
 
 ```sh
 cd server
-make run    # build central and the node binaries for the join command, then start central
+make run    # build central and the node binaries, then start TimescaleDB and central with analytics
 ```
 
 Central listens only on its Tailscale IPv4.
@@ -101,10 +101,10 @@ Central can keep a usage history in TimescaleDB, the open-source database of Tig
 
 ```sh
 cd server
-make run-db    # start TimescaleDB on 127.0.0.1, then start central with analytics
+make run    # start TimescaleDB on 127.0.0.1, then start central with analytics
 ```
 
-Open `http://<central-tailscale-ip>:8080/analytics` to see these values:
+On the central machine, open `http://127.0.0.1:3000/analytics` to see these values. Other machines cannot open it.
 
 - The share of tokens that each participant gives and uses, with the total in each chart.
 - The balance of each participant: tokens served minus tokens used.

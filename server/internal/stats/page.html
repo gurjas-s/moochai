@@ -54,10 +54,6 @@ td.name { font-weight: 600; }
 .balbar i { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
 .balbar::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
 .give { color: var(--give); } .take { color: var(--take); }
-ol.rank { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
-ol.rank li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
-ol.rank li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-ol.rank li span:last-child { font-family: var(--mono); }
 .pie { position: relative; height: 260px; }
 .empty, .error { color: var(--muted); padding: 12px 0; }
 .error { color: var(--take); }
@@ -88,7 +84,6 @@ ol.rank li span:last-child { font-family: var(--mono); }
   </section>
   <section class="kpis" aria-label="Totals in this window">
     <div class="kpi"><b id="k-req">–</b><span>requests served</span></div>
-    <div class="kpi"><b id="k-tok">–</b><span>tokens served</span></div>
     <div class="kpi"><b id="k-people">–</b><span>participants</span></div>
     <div class="kpi"><b id="k-models">–</b><span>models used</span></div>
   </section>
@@ -96,15 +91,15 @@ ol.rank li span:last-child { font-family: var(--mono); }
   <section class="grid2">
     <div class="panel">
       <h2>Top givers <span class="give">(tokens served)</span></h2>
-      <ol class="rank" id="givers"></ol>
       <h3>Share of all tokens served</h3>
       <div class="pie"><canvas id="pie-give" aria-label="Share of tokens served by each giver" role="img"></canvas></div>
+      <p class="empty" hidden>No tokens in this window.</p>
     </div>
     <div class="panel">
       <h2>Top takers <span class="take">(tokens used)</span></h2>
-      <ol class="rank" id="takers"></ol>
       <h3>Share of all tokens used</h3>
       <div class="pie"><canvas id="pie-take" aria-label="Share of tokens used by each taker" role="img"></canvas></div>
+      <p class="empty" hidden>No tokens in this window.</p>
     </div>
   </section>
 
@@ -141,6 +136,27 @@ let current = "24h";
 let last = null;
 const pies = {};
 
+// centerTotal writes the total in the hole of a donut, like the shadcn "Donut with Text" chart.
+const centerTotal = {
+  id: "centerTotal",
+  afterDraw(chart) {
+    const arc = chart.getDatasetMeta(0).data[0];
+    if (!arc) return;
+    const sum = chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+    const { ctx } = chart, font = Chart.defaults.font.family;
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = css("--text");
+    ctx.font = `700 22px ${font}`;
+    ctx.fillText(compact(sum), arc.x, arc.y - 8);
+    ctx.fillStyle = css("--muted");
+    ctx.font = `12px ${font}`;
+    ctx.fillText("tokens", arc.x, arc.y + 14);
+    ctx.restore();
+  },
+};
+
 function el(tag, attrs = {}, ...kids) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
@@ -156,13 +172,7 @@ function compact(n) {
 const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + compact(Math.abs(n));
 const ms = (v) => (v >= 1000 ? (v / 1000).toFixed(1) + " s" : Math.round(v) + " ms");
 
-function rank(list, rows) {
-  list.replaceChildren();
-  if (!rows.length) { list.append(el("li", { class: "empty" }, "No tokens in this window.")); return; }
-  for (const r of rows.slice(0, 5)) list.append(el("li", {}, el("span", {}, r.name), el("span", {}, compact(r.value) + " tokens")));
-}
-
-// pie draws the share of each participant. A slice keeps the color of its rank in the list above.
+// pie draws the share of each participant. A slice takes the color of its rank.
 function pie(id, rows) {
   const canvas = $(id);
   const top = rows.slice(0, SLICES);
@@ -172,36 +182,54 @@ function pie(id, rows) {
   if (rest > 0) { labels.push(`Others (${rows.length - SLICES})`); values.push(rest); colors.push(css("--other")); }
   const total = values.reduce((a, b) => a + b, 0);
   canvas.parentElement.hidden = total === 0;
+  canvas.parentElement.nextElementSibling.hidden = total !== 0;
   if (total === 0) return;
-  const data = { labels, datasets: [{ data: values, backgroundColor: colors, borderColor: css("--surface"), borderWidth: 2, hoverOffset: 6 }] };
-  if (pies[id]) { pies[id].data = data; pies[id].update("none"); return; }
+  // Hover keeps the same solid colors. Chart.js otherwise derives a hover color from each slice.
+  const ds = { data: values, backgroundColor: colors, hoverBackgroundColor: colors, borderColor: css("--surface"),
+    hoverBorderColor: css("--surface"), borderWidth: 2, borderRadius: 4, hoverOffset: 6 };
+  // Change the data in place. A new data object every poll restarts the tooltip fade, so the tooltip stays transparent.
+  if (pies[id]) {
+    pies[id].data.labels = labels;
+    Object.assign(pies[id].data.datasets[0], ds);
+    pies[id].update("none");
+    return;
+  }
+  const data = { labels, datasets: [ds] };
   pies[id] = new Chart(canvas, {
-    type: "pie",
+    type: "doughnut",
     data,
+    plugins: [centerTotal],
     options: {
       maintainAspectRatio: false,
+      cutout: "62%",
       animation: { duration: 300 },
       plugins: {
         legend: {
           position: "right",
           labels: {
-            color: css("--text"), boxWidth: 12, boxHeight: 12, padding: 10,
+            color: css("--text"), usePointStyle: true, boxWidth: 8, boxHeight: 8, padding: 12,
             // The legend shows the percent, so identity and share never depend on color alone.
             generateLabels(chart) {
               const ds = chart.data.datasets[0], sum = ds.data.reduce((a, b) => a + b, 0);
               return chart.data.labels.map((label, i) => ({
                 text: `${label}  ${Math.round(ds.data[i] / sum * 100)}%`,
-                fillStyle: ds.backgroundColor[i], strokeStyle: ds.backgroundColor[i], fontColor: css("--text"),
+                fillStyle: ds.backgroundColor[i], strokeStyle: ds.backgroundColor[i], fontColor: css("--text"), pointStyle: "rectRounded",
                 hidden: !chart.getDataVisibility(i), index: i,
               }));
             },
           },
         },
+        // The tooltip copies the shadcn card: surface, thin border, rounded corners, color swatch.
         tooltip: {
+          backgroundColor: css("--surface"), borderColor: css("--line"), borderWidth: 1, cornerRadius: 8,
+          titleColor: css("--text"), bodyColor: css("--muted"), padding: 10, boxPadding: 6,
+          usePointStyle: true, displayColors: true, animation: false,
           callbacks: {
+            labelColor: (ctx) => ({ backgroundColor: ctx.dataset.backgroundColor[ctx.dataIndex], borderColor: css("--surface"), borderWidth: 0 }),
+            labelPointStyle: () => ({ pointStyle: "rectRounded", rotation: 0 }),
             label(ctx) {
               const sum = ctx.dataset.data.reduce((a, b) => a + b, 0);
-              return ` ${num(ctx.parsed)} tokens (${(ctx.parsed / sum * 100).toFixed(1)}%)`;
+              return `${num(ctx.parsed)} tokens (${(ctx.parsed / sum * 100).toFixed(1)}%)`;
             },
           },
         },
@@ -216,14 +244,13 @@ function render(s, m) {
   $("k-rows").textContent = compact(s.live.rows_stored);
   $("stamp").textContent = "Updated " + new Date(s.updated_at).toLocaleTimeString() + ".";
   $("k-req").textContent = num(s.requests);
-  $("k-tok").textContent = compact(s.tokens);
   $("k-people").textContent = num(s.nodes.length);
   $("k-models").textContent = num(m.models.length);
 
   const givers = s.nodes.filter((n) => n.tokens_served > 0).map((n) => ({ name: n.name, value: n.tokens_served })).sort((a, b) => b.value - a.value);
   const takers = s.nodes.filter((n) => n.tokens_used > 0).map((n) => ({ name: n.name, value: n.tokens_used })).sort((a, b) => b.value - a.value);
-  rank($("givers"), givers); pie("pie-give", givers);
-  rank($("takers"), takers); pie("pie-take", takers);
+  pie("pie-give", givers);
+  pie("pie-take", takers);
 
   const body = $("nodes");
   body.replaceChildren();

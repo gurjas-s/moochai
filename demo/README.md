@@ -13,7 +13,7 @@ go run ./cmd/mooch-central
 
 Central reads `.env` from the directory where it starts. A variable that you set in the shell wins over the file.
 
-Open <http://127.0.0.1:8080/analytics>. The page updates every half second.
+Open <http://127.0.0.1:3000/analytics>. The page updates every half second.
 
 ## Scripts
 
