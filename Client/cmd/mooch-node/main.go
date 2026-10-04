@@ -5,10 +5,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,6 +22,7 @@ import (
 	"mooch-client/internal/identity"
 	"mooch-client/internal/proxy"
 	"mooch-client/internal/server"
+	"mooch-client/internal/tui"
 )
 
 const probeTimeout = 3 * time.Second
@@ -44,6 +48,12 @@ func main() {
 // Configure the default logger from mode and format.
 // Use requests mode for normal use. Use dev mode for debug work.
 func setupLogging(mode, format string) error {
+	return setupLoggingTo(os.Stderr, mode, format)
+}
+
+// Configure the default logger with an explicit output.
+// The headless path uses stderr. The dashboard routes logs to itself.
+func setupLoggingTo(w io.Writer, mode, format string) error {
 	var level slog.Level
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case logModeRequests, "":
@@ -57,14 +67,36 @@ func setupLogging(mode, format string) error {
 	var handler slog.Handler
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "text", "":
-		handler = slog.NewTextHandler(os.Stderr, opts)
+		handler = slog.NewTextHandler(w, opts)
 	case "json":
-		handler = slog.NewJSONHandler(os.Stderr, opts)
+		handler = slog.NewJSONHandler(w, opts)
 	default:
 		return fmt.Errorf("invalid log format %q: use text or json", format)
 	}
 	slog.SetDefault(slog.New(handler))
 	return nil
+}
+
+// Route logs to the dashboard with short friendly lines.
+// Use requests mode for normal use. Use dev mode for debug work.
+func setupDashboardLogging(ui *tui.UI, mode string) error {
+	var level slog.Level
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case logModeRequests, "":
+		level = slog.LevelInfo
+	case logModeDev:
+		level = slog.LevelDebug
+	default:
+		return fmt.Errorf("invalid log mode %q: use requests or dev", mode)
+	}
+	slog.SetDefault(slog.New(tui.NewLogHandler(ui, level)))
+	return nil
+}
+
+// isTerminal reports whether f is a character device.
+func isTerminal(f *os.File) bool {
+	st, err := f.Stat()
+	return err == nil && st.Mode()&os.ModeCharDevice != 0
 }
 
 // Read the flag default from the environment.
@@ -115,14 +147,6 @@ func run(configPath, logMode, logFormat string) error {
 		"tailscale_ip", tailscaleIP.String(),
 		"listen_addr", listenAddr,
 	)
-	slog.Info("node start",
-		"component", "main",
-		"node_id", nodeID,
-		"listen_addr", listenAddr,
-		"version", central.Version,
-		"log_mode", logMode,
-	)
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -138,7 +162,6 @@ func run(configPath, logMode, logFormat string) error {
 			}
 		}
 	}
-	probe(ctx)
 
 	var discMu sync.RWMutex
 	discovered := []config.Service(nil)
@@ -163,7 +186,6 @@ func run(configPath, logMode, logFormat string) error {
 			"models", countModels(found),
 		)
 	}
-	discover(ctx)
 
 	merged := func() []config.Service {
 		servicesMu.RLock()
@@ -172,6 +194,46 @@ func run(configPath, logMode, logFormat string) error {
 		discMu.RLock()
 		defer discMu.RUnlock()
 		return append(static, discovered...)
+	}
+
+	// The dashboard owns the terminal when stdout is a terminal.
+	// Without a terminal the node keeps plain logs on stderr.
+	centralAddr := net.JoinHostPort(cfg.Network.CentralHost, strconv.Itoa(cfg.Network.CentralPort))
+	startedAt := time.Now()
+	var ui *tui.UI
+	if isTerminal(os.Stdout) {
+		ui = tui.New(ctx, func() tui.Info {
+			services := merged()
+			out := make([]tui.Service, 0, len(services))
+			for _, service := range services {
+				out = append(out, tui.Service{
+					ID: service.ID, Name: service.Name,
+					Provider: string(service.Provider),
+					Models:   service.Models, Healthy: service.Healthy,
+				})
+			}
+			return tui.Info{
+				NodeName: name, NodeID: nodeID,
+				TailscaleIP: tailscaleIP.String(), ListenAddr: listenAddr,
+				CentralAddr: centralAddr, Version: central.Version,
+				UpSince: startedAt, Services: out,
+			}
+		})
+		if err := setupDashboardLogging(ui, logMode); err != nil {
+			return err
+		}
+	}
+	slog.Info("node start",
+		"component", "main",
+		"node_id", nodeID,
+		"listen_addr", listenAddr,
+		"version", central.Version,
+		"log_mode", logMode,
+	)
+	probe(ctx)
+	discover(ctx)
+	if ui != nil {
+		ui.Hosting(modelNames(merged()))
 	}
 
 	proxyServices := func() []proxy.Service {
@@ -200,6 +262,13 @@ func run(configPath, logMode, logFormat string) error {
 	centralClient, err := central.New(cfg.Network.CentralHost, cfg.Network.CentralPort)
 	if err != nil {
 		return err
+	}
+	if ui != nil {
+		centralClient.WithHooks(central.Hooks{
+			OnRegistered: func() { ui.Joined(centralAddr) },
+			OnHeartbeat:  func() { ui.SetStatus(tui.StatusJoined, "") },
+			OnError:      func(err error) { ui.Retrying(err.Error()) },
+		})
 	}
 	payload := func() central.Payload {
 		probe(ctx)
@@ -232,6 +301,10 @@ func run(configPath, logMode, logFormat string) error {
 	}()
 	go func() { errs <- centralClient.Run(ctx, payload, cfg.Network.HeartbeatInterval) }()
 
+	if ui != nil {
+		return runDashboard(ctx, stop, ui, nodeServer, errs, nodeID)
+	}
+
 	select {
 	case <-ctx.Done():
 	case err := <-errs:
@@ -243,6 +316,35 @@ func run(configPath, logMode, logFormat string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return nodeServer.Shutdown(shutdownCtx)
+}
+
+// runDashboard shows the dashboard until quit or stop.
+// A server error stops the context, which ends the dashboard.
+func runDashboard(ctx context.Context, stop context.CancelFunc, ui *tui.UI, nodeServer *server.Server, errs chan error, nodeID string) error {
+	go func() {
+		if err := <-errs; err != nil && !errors.Is(err, context.Canceled) {
+			slog.Error("node stopped", "component", "main", "node_id", nodeID, "error", err)
+		}
+		stop()
+	}()
+	if err := ui.Run(); err != nil {
+		stop()
+		return err
+	}
+	stop()
+	slog.Debug("node shutdown", "component", "main", "node_id", nodeID)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return nodeServer.Shutdown(shutdownCtx)
+}
+
+// modelNames collects the advertised model IDs.
+func modelNames(services []config.Service) []string {
+	var out []string
+	for _, service := range services {
+		out = append(out, service.Models...)
+	}
+	return out
 }
 
 // Count the advertised models across discovered services.

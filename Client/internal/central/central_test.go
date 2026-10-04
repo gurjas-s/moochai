@@ -91,3 +91,44 @@ func TestRunRetriesAndStops(t *testing.T) {
 		t.Fatalf("attempts = %d, want retry", attempts)
 	}
 }
+
+func TestRunFiresHooks(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts == 1 {
+			http.Error(w, "try again", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	client := &Client{
+		baseURL: server.URL, httpClient: server.Client(),
+		retry: RetryPolicy{Initial: time.Millisecond, Max: time.Millisecond},
+	}
+	registered, heartbeats, failures := 0, 0, 0
+	client.WithHooks(Hooks{
+		OnRegistered: func() { registered++ },
+		OnHeartbeat:  func() { heartbeats++ },
+		OnError:      func(err error) { failures++ },
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	if err := client.Run(ctx, func() Payload { return Payload{} }, time.Millisecond); err != context.Canceled {
+		t.Fatalf("Run() error = %v, want context canceled", err)
+	}
+	if registered != 1 {
+		t.Errorf("registered = %d, want 1", registered)
+	}
+	if failures < 1 {
+		t.Errorf("failures = %d, want at least 1", failures)
+	}
+	if heartbeats < 1 {
+		t.Errorf("heartbeats = %d, want at least 1", heartbeats)
+	}
+}

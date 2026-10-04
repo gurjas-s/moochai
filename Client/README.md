@@ -122,6 +122,22 @@ When `--config` is not provided, the client checks these paths:
 1. `~/.config/mooch/node.yaml`
 2. `./mooch-node.yaml`
 
+## Dashboard
+
+The node shows a dashboard when stdout is a terminal.
+Without a terminal the node keeps plain logs on stderr.
+
+The dashboard shows three parts:
+
+- Status: `connecting`, `joined`, or `retrying` with the central address.
+- Models on this node: hosted models with health state.
+  Peers can use these models through central.
+- Activity: short operator lines for joins, model updates,
+  served requests, and errors.
+
+Keys: `↑/↓` scroll, `pgup/pgdn` page, `g/G` top/bottom, `q` quit.
+Use `--log-mode dev` for debug detail in the activity view.
+
 ## Logging
 
 The client has two log modes.

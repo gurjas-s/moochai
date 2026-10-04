@@ -39,11 +39,20 @@ type Client struct {
 	httpClient *http.Client
 	retry      RetryPolicy
 	logger     *slog.Logger
+	hooks      Hooks
 }
 
 type RetryPolicy struct {
 	Initial time.Duration
 	Max     time.Duration
+}
+
+// Hooks reports register and heartbeat results.
+// The node dashboard sets these hooks to show join status.
+type Hooks struct {
+	OnRegistered func()
+	OnHeartbeat  func()
+	OnError      func(err error)
 }
 
 func New(host string, port int) (*Client, error) {
@@ -64,6 +73,12 @@ func (c *Client) WithLogger(l *slog.Logger) *Client {
 		l = slog.Default()
 	}
 	c.logger = l
+	return c
+}
+
+// WithHooks sets the result hooks. It returns the client.
+func (c *Client) WithHooks(h Hooks) *Client {
+	c.hooks = h
 	return c
 }
 
@@ -116,6 +131,7 @@ func (c *Client) Run(ctx context.Context, payload func() Payload, interval time.
 	if err := c.retryCall(ctx, func() error { return c.Register(ctx, payload()) }); err != nil {
 		return err
 	}
+	c.hookRegistered()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -126,6 +142,7 @@ func (c *Client) Run(ctx context.Context, payload func() Payload, interval time.
 			if err := c.retryCall(ctx, func() error { return c.Heartbeat(ctx, payload()) }); err != nil {
 				return err
 			}
+			c.hookHeartbeat()
 		}
 	}
 }
@@ -143,6 +160,7 @@ func (c *Client) retryCall(ctx context.Context, call func() error) error {
 				"error", err,
 				"retry_in", delay.String(),
 			)
+			c.hookError(err)
 		}
 		timer := time.NewTimer(delay)
 		select {
@@ -155,5 +173,26 @@ func (c *Client) retryCall(ctx context.Context, call func() error) error {
 		if delay > c.retry.Max {
 			delay = c.retry.Max
 		}
+	}
+}
+
+// hookRegistered reports a confirmed register. It ignores nil hooks.
+func (c *Client) hookRegistered() {
+	if c != nil && c.hooks.OnRegistered != nil {
+		c.hooks.OnRegistered()
+	}
+}
+
+// hookHeartbeat reports a confirmed heartbeat. It ignores nil hooks.
+func (c *Client) hookHeartbeat() {
+	if c != nil && c.hooks.OnHeartbeat != nil {
+		c.hooks.OnHeartbeat()
+	}
+}
+
+// hookError reports a failed central request. It ignores nil hooks.
+func (c *Client) hookError(err error) {
+	if c != nil && c.hooks.OnError != nil {
+		c.hooks.OnError(err)
 	}
 }
