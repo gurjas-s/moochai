@@ -100,16 +100,58 @@ func TestLogHandlerWritesFriendlyLines(t *testing.T) {
 	var buf bytes.Buffer
 	h := NewLogHandler(&buf, slog.LevelDebug)
 	logger := slog.New(h)
-	logger.Info("proxy forward", "component", "proxy", "model", "qwen2.5", "service", "local-qwen")
 	logger.Warn("backend probe failed", "component", "health", "service", "local-qwen")
 	out := buf.String()
-	for _, want := range []string{`Serve "qwen2.5"`, "is down"} {
+	for _, want := range []string{"is down"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log output misses %q:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "component=") || strings.Contains(out, "level=") {
 		t.Errorf("log output keeps raw fields:\n%s", out)
+	}
+}
+
+func TestLogHandlerFramesRequests(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(NewLogHandler(&buf, slog.LevelInfo))
+	logger.Info("proxy forward", "model", "qwen2.5", "service", "local-qwen", "prompt", "hi")
+	logger.Info("request", "method", "POST", "path", "/v1/chat/completions", "status", 200)
+	logger.Info("proxy response", "service", "local-qwen", "status", 502, "duration", 1234*time.Millisecond, "answer", "")
+	logger.Info("request", "method", "GET", "path", "/v1/models", "status", 200)
+	out := ansi.Strip(buf.String())
+	for _, want := range []string{" #1 ", "MODEL    [ central → local-qwen ] qwen2.5",
+		"REQUEST  [ central → local-qwen ]" + cut + `"hi"`, "RESPONSE [ local-qwen → central ] 502" + cut + "(no text)" + cut + "in 1.234s",
+		"GET /v1/models"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output misses %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "POST") {
+		t.Errorf("output keeps the POST request line:\n%s", out)
+	}
+}
+
+func TestRedrawFitsFramesToWidth(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(NewLogHandler(&buf, slog.LevelInfo))
+	logger.Info("proxy forward", "model", "m", "service", "s", "prompt", strings.Repeat("x", 100))
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	for _, l := range lines {
+		got, ok := redraw(l, 50)
+		if !ok {
+			t.Fatalf("redraw rejects frame line %q", l)
+		}
+		if w := ansi.StringWidth(got); w != 50 && !strings.HasPrefix(ansi.Strip(got), "─") {
+			t.Errorf("width %d, want 50: %q", w, ansi.Strip(got))
+		}
+	}
+	if got, _ := redraw(lines[5], 50); !strings.Contains(ansi.Strip(got), "REQUEST  [ central → s ] \"xx") ||
+		!strings.Contains(ansi.Strip(got), "…") {
+		t.Errorf("long text line is not cut: %q", ansi.Strip(got))
+	}
+	if _, ok := redraw("12:00:00  READY plain line", 50); ok {
+		t.Error("redraw accepts a plain line")
 	}
 }
 
