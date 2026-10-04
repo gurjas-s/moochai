@@ -54,13 +54,12 @@ Start central on one computer of the tailnet:
 
 ```sh
 cd server
-./build-nodes.sh                    # build node binaries for the join command
-go run ./cmd/mooch-central          # listen on the Tailscale IPv4, port 8080
+make run    # build central and the node binaries for the join command, then start central
 ```
 
 Central listens only on its Tailscale IPv4.
 Thus only computers on your tailnet can connect.
-For local tests, use `go run ./cmd/mooch-central -addr 127.0.0.1:8080`.
+For local tests, use `make run-local`. It listens on `127.0.0.1:8080`.
 
 ### 2. Join a computer
 
