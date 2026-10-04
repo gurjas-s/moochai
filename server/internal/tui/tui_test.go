@@ -9,13 +9,17 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 
+	"mooch-serv/internal/feed"
+
 	"mooch-serv/internal/registry"
 )
 
 func TestView(t *testing.T) {
 	reg := registry.New(time.Minute)
 	reg.Upsert(registry.Node{NodeID: "n1", Name: "gpu-box", TailscaleIP: "100.64.0.7",
-		Services: []registry.Service{{Models: []string{"qwen"}}}})
+		Services: []registry.Service{{Models: []string{"qwen"}, Healthy: true}}})
+	reg.Upsert(registry.Node{NodeID: "n2", Name: "mini", TailscaleIP: "100.64.0.8",
+		Services: []registry.Service{{Models: []string{"qwen"}, Healthy: true}}})
 	m := &model{reg: reg, addr: "100.64.0.1:8080", tailnet: true, now: time.Now()}
 	m.Init()
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
@@ -33,12 +37,30 @@ func TestView(t *testing.T) {
 		}
 	}
 
-	// A wide terminal shows the logo next to the central address.
-	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
-	if view := ansi.Strip(m.View()); !strings.Contains(view, "███╗   ███╗") || !strings.Contains(view, "100.64.0.1:8080") {
-		t.Fatalf("wide view misses the logo or the address:\n%s", view)
+	// A wide terminal shows the logo, the NODES box, and the MODELS box on one row.
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	view = ansi.Strip(m.View())
+	top := strings.Split(view, "\n")[2]
+	for _, want := range []string{"███╗", "gpu-box", "qwen"} {
+		if !strings.Contains(top, want) {
+			t.Fatalf("top row misses %q:\n%s", want, view)
+		}
+	}
+	if !strings.Contains(view, "qwen  gpu-box, mini") {
+		t.Fatalf("MODELS box does not list the machines of qwen:\n%s", view)
 	}
 	m.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+
+	// The mouse wheel scrolls the console up and back down.
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelUp, Action: tea.MouseActionPress})
+	if m.scroll != wheelLines || strings.Contains(ansi.Strip(m.View()), "line 29") {
+		t.Fatalf("wheel up: scroll = %d", m.scroll)
+	}
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	m.Update(tea.MouseMsg{Button: tea.MouseButtonWheelDown, Action: tea.MouseActionPress})
+	if m.scroll != 0 {
+		t.Fatalf("wheel down: scroll = %d, want 0", m.scroll)
+	}
 
 	// Scroll up past the top. The view stops at the first line and keeps its height.
 	m.Update(tea.KeyMsg{Type: tea.KeyHome})
@@ -57,5 +79,25 @@ func TestWrap(t *testing.T) {
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+
+	// A frame border fills the width, closes on the right, and keeps its colour.
+	got = wrap("          \033[34m╭"+strings.Repeat("─", 60)+"\033[0m", 30)
+	if len(got) != 1 || ansi.Strip(got[0]) != "          ╭"+strings.Repeat("─", 18)+"╮" || !strings.HasPrefix(got[0], "          \033[34m╭") {
+		t.Fatalf("border = %q", got)
+	}
+
+	// A long framed line cuts only the text and keeps the direction and the status.
+	line := "12:00:00  │ RESPONSE [ a → b ] 200" + feed.Cut + `"` + strings.Repeat("x", 80) + `"` + feed.Cut + "in 1s"
+	got = wrap(line, 60)
+	wantLine := "12:00:00  │ RESPONSE [ a → b ] 200 \"" + strings.Repeat("x", 15) + "… in 1s │"
+	if len(got) != 1 || ansi.Strip(got[0]) != wantLine || ansi.StringWidth(got[0]) != 60 {
+		t.Fatalf("framed line =\n%q\nwant\n%q", ansi.Strip(got[0]), wantLine)
+	}
+
+	// A divider fills the width with the request number in the centre.
+	got = wrap(strings.Repeat("─", 33)+" #12 "+strings.Repeat("─", 33), 21)
+	if want := strings.Repeat("─", 8) + " #12 " + strings.Repeat("─", 8); len(got) != 1 || ansi.Strip(got[0]) != want {
+		t.Fatalf("divider = %q, want %q", ansi.Strip(got[0]), want)
 	}
 }

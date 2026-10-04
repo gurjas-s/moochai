@@ -16,21 +16,55 @@ func TestFeedLines(t *testing.T) {
 	f.Joined(registry.Node{NodeID: "n1", Name: "gpu-box", TailscaleIP: "100.64.0.7",
 		Services: []registry.Service{{Models: []string{"a", "b"}}}})
 	f.Left(registry.Node{NodeID: "n2"})
-	id := f.Route("laptop", "a", []string{"gpu-box"}, "gpu-box")
-	f.Request(id, "laptop", "gpu-box", "POST /v1/chat/completions", "hi")
-	f.Response(id, "gpu-box", "laptop", 200, 1234*time.Millisecond, "")
-	want := `09:05:00  JOIN  gpu-box 100.64.0.7 · models: a, b
-09:05:00  LEAVE n2 no heartbeat
-09:05:00  ROUTE #1 laptop asks for a → gpu-box · served by: gpu-box
-09:05:00  REQ   #1 laptop → gpu-box POST /v1/chat/completions "hi"
-09:05:00  RESP  #1 gpu-box → laptop 200 in 1.234s
+	f.Route("laptop", "a", "gpu-box")
+	f.Request("laptop", "gpu-box", "POST", "/v1/chat/completions", "hi")
+	f.Response("gpu-box", "laptop", 200, 1234*time.Millisecond, "")
+	want := `          ╭────────────────────────────────────────────────────────────
+09:05:00  │ JOIN     gpu-box 100.64.0.7 · models: a, b
+          ╰────────────────────────────────────────────────────────────
+          ╭────────────────────────────────────────────────────────────
+09:05:00  │ LEAVE    n2 no heartbeat
+          ╰────────────────────────────────────────────────────────────
+───────────────────────────────── #1 ─────────────────────────────────
+          ╭────────────────────────────────────────────────────────────
+09:05:00  │ MODEL    [ laptop → gpu-box ] a
+          ╰────────────────────────────────────────────────────────────
+          ╭────────────────────────────────────────────────────────────
+09:05:00  │ REQUEST  [ laptop → gpu-box ] "hi"
+          ╰────────────────────────────────────────────────────────────
+          ╭────────────────────────────────────────────────────────────
+09:05:00  │ RESPONSE [ gpu-box → laptop ] (no text) in 1.234s
+          ╰────────────────────────────────────────────────────────────
 `
 	if out.String() != want {
 		t.Fatalf("got\n%s\nwant\n%s", out.String(), want)
 	}
+	// Details adds the method, the path, and the status. An error status shows without Details.
+	out.Reset()
+	f.Details = true
+	f.Request("a", "b", "POST", "/v1/chat/completions", "hi")
+	f.Response("b", "a", 200, 0, "")
+	f.Details = false
+	f.Response("b", "a", 502, 0, "")
+	for _, want := range []string{`[ a → b ] POST "hi" /v1/chat/completions`, "[ b → a ] 200 (no text)", "[ b → a ] 502 (no text)"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("feed misses %q:\n%s", want, out.String())
+		}
+	}
+
+	// The dashboard feed does not print JOIN and LEAVE.
+	out.Reset()
+	d := NewDashboard(&out)
+	d.Joined(registry.Node{NodeID: "n1"})
+	d.Left(registry.Node{NodeID: "n1"})
+	if out.Len() != 0 {
+		t.Errorf("dashboard feed printed %q", out.String())
+	}
+
 	var nilFeed *Feed
 	nilFeed.Joined(registry.Node{}) // A nil feed must not panic.
-	nilFeed.Response(nilFeed.Route("", "", nil, ""), "", "", 0, 0, "")
+	nilFeed.Route("", "", "")
+	nilFeed.Response("", "", 0, 0, "")
 }
 
 func TestResponsePreview(t *testing.T) {

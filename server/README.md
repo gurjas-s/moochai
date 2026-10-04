@@ -60,7 +60,7 @@ live nodes and models. Central relies on the tailnet to limit who can connect.
 | `internal/join` | Join page, install script, default node config, node binaries |
 | `internal/app` | Embedded test UI (`page.html`) at `/app` |
 | `internal/feed` | Event lines: join, leave, route, request, response |
-| `internal/tui` | Terminal dashboard: header, node list, event console |
+| `internal/tui` | Terminal dashboard: logo, NODES and MODELS boxes, event console |
 | `internal/respond` | JSON responses and the OpenAI error envelope |
 
 ## Run
@@ -78,6 +78,7 @@ go run ./cmd/mooch-central -addr 127.0.0.1:8080   # local use only
 | `-node-ttl` | `45s` | Remove a node after this time without a heartbeat. |
 | `-debug` | `false` | Log each heartbeat. |
 | `-plain` | `false` | Print the event feed as lines. Do not show the dashboard. |
+| `-details` | `false` | Show the method, the path, and the status on REQUEST and RESPONSE lines. |
 | `-verbose` | `false` | Print plain log lines. Do not show the feed or the dashboard. |
 
 Run these checks before a push:

@@ -72,13 +72,6 @@ func (reg *Registry) Lookup(model string) (Node, bool) {
 	return matches[reg.lookupCount%len(matches)], true
 }
 
-// Serving lists the live nodes that serve model, sorted by ID.
-func (reg *Registry) Serving(model string) []Node {
-	reg.nodesLock.Lock()
-	defer reg.nodesLock.Unlock()
-	return reg.servingLocked(model)
-}
-
 // NodeByIP returns the live node with the Tailscale IP ip.
 func (reg *Registry) NodeByIP(ip string) (Node, bool) {
 	reg.nodesLock.Lock()

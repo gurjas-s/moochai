@@ -35,6 +35,7 @@ func main() {
 	debug := flag.Bool("debug", false, "log each heartbeat")
 	verbose := flag.Bool("verbose", false, "print plain log lines instead of the coloured feed")
 	plain := flag.Bool("plain", false, "print the coloured feed without the dashboard")
+	details := flag.Bool("details", false, "show the method, the path, and the status on REQUEST and RESPONSE lines")
 	flag.Parse()
 
 	// The feed replaces the info logs. Warnings and errors still go to the log output.
@@ -54,7 +55,7 @@ func main() {
 	case *plain || !isTerminal(os.Stdout):
 		mode = modeFeed
 	}
-	if err := run(*addr, *binDir, *ttl, mode, level); err != nil {
+	if err := run(*addr, *binDir, *ttl, mode, level, *details); err != nil {
 		slog.Error("central stopped", "error", err)
 		os.Exit(1)
 	}
@@ -68,7 +69,7 @@ const (
 	modeLog                         // plain slog lines
 )
 
-func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Level) error {
+func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Level, details bool) error {
 	listen, tailscaleIP, err := resolveListenAddr(addr)
 	if err != nil {
 		return err
@@ -89,7 +90,7 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 	switch mode {
 	case modeDashboard:
 		ui = tui.New(ctx, reg, ln.Addr().String(), tailscaleIP.IsValid())
-		f = feed.NewColor(ui)
+		f = feed.NewDashboard(ui)
 		// The dashboard owns the terminal, so warnings go to the console.
 		slog.SetDefault(slog.New(slog.NewTextHandler(consoleLog{ui}, &slog.HandlerOptions{Level: level,
 			ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
@@ -104,6 +105,9 @@ func run(addr, binDir string, ttl time.Duration, mode outputMode, level slog.Lev
 		if tailscaleIP.IsValid() {
 			printJoinInfo(os.Stdout, tailscaleIP, port)
 		}
+	}
+	if f != nil {
+		f.Details = details
 	}
 	if !tailscaleIP.IsValid() && ui == nil {
 		slog.Warn("central does not listen on a Tailscale IP, so other machines cannot join")
