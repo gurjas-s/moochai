@@ -41,9 +41,10 @@ func New(reg *registry.Registry, log *slog.Logger) *Handler {
 	}
 	h := &Handler{reg: reg, log: log.With("component", "router")}
 	h.proxy = &httputil.ReverseProxy{
-		// handleForward sets the target URL. FlushInterval -1 sends each
-		// stream chunk at once. No total deadline cuts an active stream.
-		Rewrite:       func(*httputil.ProxyRequest) {},
+		// handleForward sets the target URL before proxying. A Director keeps
+		// that URL and lets ReverseProxy stream the node response to the tool.
+		// FlushInterval -1 sends each stream chunk at once.
+		Director: func(*http.Request) {},
 		FlushInterval: -1,
 		Transport: &http.Transport{
 			DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
