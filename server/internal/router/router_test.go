@@ -189,7 +189,7 @@ func TestForwardPrintsFeed(t *testing.T) {
 	}
 	got := out.String()
 	for _, want := range []string{
-		"ROUTE [ 127.0.0.1 → n1 ] MODEL qwen #1",
+		"MODEL [ 127.0.0.1 → n1 ] qwen #1",
 		`│ REQ   [ 127.0.0.1 → n1 ] "hello there" #1`,
 		`│ RESP  [ n1 → 127.0.0.1 ] 418 "general kenobi" in `,
 		`"general kenobi"`,

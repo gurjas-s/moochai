@@ -126,7 +126,7 @@ func (f *Feed) Left(n registry.Node) {
 	f.message(red, "LEAVE", f.paint(bold+cyan, Name(n)), f.paint(grey, "no heartbeat"), "", 0)
 }
 
-// Route prints the model selection and the node that gets the request in a frame.
+// Route prints the selected model and the node that gets the request in a MODEL frame.
 // Route returns a request number for Request and Response.
 func (f *Feed) Route(from, model, to string) int {
 	if f == nil {
@@ -136,7 +136,7 @@ func (f *Feed) Route(from, model, to string) int {
 	f.reqID++
 	id := f.reqID
 	f.mu.Unlock()
-	f.message(yellow, "ROUTE", f.chat(yellow, from, to)+" "+f.paint(grey, "MODEL")+" "+f.paint(bold+magenta, model), "", "", id)
+	f.message(yellow, "MODEL", f.chat(yellow, from, to)+" "+f.paint(bold+magenta, model), "", "", id)
 	return id
 }
 

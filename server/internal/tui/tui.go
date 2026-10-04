@@ -297,7 +297,7 @@ func wrap(line string, width int) []string {
 	if l, ok := frame(line, width); ok {
 		return []string{l}
 	}
-	const indent = 16 // "15:04:05  ROUTE "
+	const indent = 16 // "15:04:05  ERROR "
 	if ansi.StringWidth(line) <= width || width <= indent+10 {
 		return strings.Split(ansi.Hardwrap(line, width, true), "\n")
 	}
