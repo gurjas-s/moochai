@@ -93,10 +93,11 @@ go test ./... -count=1
 | Method | Path | Use |
 |--------|------|-----|
 | GET | `/healthz` | Status, node count, uptime |
+| GET | `/health` | Health check for vLLM discovery |
 | GET | `/api/nodes` | Live nodes |
 | POST | `/api/nodes/register` | Node register |
 | POST | `/api/nodes/heartbeat` | Node heartbeat (same payload as register) |
-| GET | `/v1/models` | Models of the live nodes |
+| GET | `/v1/models` | Models of the live nodes in vLLM format |
 | POST | `/v1/chat/completions` | Forward to a node that serves the model |
 | POST | `/v1/completions` | Forward to a node that serves the model |
 | POST | `/v1/embeddings` | Forward to a node that serves the model |

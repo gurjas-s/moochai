@@ -59,6 +59,7 @@ func New(reg *registry.Registry, f *feed.Feed) *Handler {
 
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", h.handleModels)
+	mux.HandleFunc("GET /health", h.handleHealth)
 	for _, p := range forwardPaths {
 		mux.HandleFunc("POST "+p, h.handleForward)
 	}
@@ -66,15 +67,26 @@ func (h *Handler) Register(mux *http.ServeMux) {
 
 func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
 	type model struct {
-		ID      string `json:"id"`
-		Object  string `json:"object"`
-		OwnedBy string `json:"owned_by"`
+		ID          string `json:"id"`
+		Object      string `json:"object"`
+		OwnedBy     string `json:"owned_by"`
+		MaxModelLen *int   `json:"max_model_len,omitempty"`
 	}
 	data := []model{}
 	for _, m := range h.reg.Models() {
-		data = append(data, model{ID: m.ID, Object: "model", OwnedBy: m.NodeID})
+		entry := model{ID: m.ID, Object: "model", OwnedBy: "vllm"}
+		if m.MaxModelLen > 0 {
+			n := m.MaxModelLen
+			entry.MaxModelLen = &n
+		}
+		data = append(data, entry)
 	}
 	respond.JSON(w, map[string]any{"object": "list", "data": data})
+}
+
+// handleHealth answers the vLLM health check with 200 OK.
+func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
+	respond.JSON(w, map[string]string{"status": "ok"})
 }
 
 func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
