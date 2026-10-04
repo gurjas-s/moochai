@@ -139,7 +139,13 @@ curl -X POST $C/api/nodes/register -d '{
   "version": "dev",
   "services": [{
     "id": "ollama", "type": "llm", "provider": "ollama",
-    "models": ["qwen2.5"], "supports_streaming": true, "healthy": true
+    "models": ["qwen2.5"], "supports_streaming": true, "healthy": true,
+    "meta": {
+      "context_window": 32768,
+      "supports_tools": true,
+      "supports_vision": false,
+      "supports_thinking": true
+    }
   }]
 }'
 ```

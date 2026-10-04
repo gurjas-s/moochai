@@ -17,7 +17,10 @@ func TestTagsAndShow(t *testing.T) {
 	reg.Upsert(registry.Node{
 		NodeID: "n1",
 		Services: []registry.Service{{Models: []string{"qwen"}, Healthy: true,
-			Meta: map[string]any{"context_window": 8192}}},
+			Meta: map[string]any{
+				"context_window": 8192, "supports_tools": true,
+				"supports_thinking": true,
+			}}},
 	})
 	mux := http.NewServeMux()
 	New(reg).Register(mux)
@@ -40,7 +43,10 @@ func TestTagsAndShow(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	body, _ = io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"mooch.context_length":8192`) {
+	if resp.StatusCode != http.StatusOK ||
+		!strings.Contains(string(body), `"mooch.context_length":8192`) ||
+		!strings.Contains(string(body), `"tools"`) ||
+		!strings.Contains(string(body), `"thinking"`) {
 		t.Fatalf("show = %d %s", resp.StatusCode, body)
 	}
 }

@@ -32,9 +32,12 @@ type Node struct {
 }
 
 type Model struct {
-	ID          string
-	NodeID      string
-	MaxModelLen int
+	ID               string
+	NodeID           string
+	MaxModelLen      int
+	SupportsTools    bool
+	SupportsVision   bool
+	SupportsThinking bool
 }
 
 type Registry struct {
@@ -101,12 +104,30 @@ func (reg *Registry) Models() []Model {
 		for _, modelID := range node.healthyModels() {
 			if !seen[modelID] {
 				seen[modelID] = true
-				result = append(result, Model{ID: modelID, NodeID: node.NodeID, MaxModelLen: node.modelContextWindow(modelID)})
+				result = append(result, Model{
+					ID: modelID, NodeID: node.NodeID,
+					MaxModelLen:      node.modelContextWindow(modelID),
+					SupportsTools:    node.modelCapability(modelID, "supports_tools"),
+					SupportsVision:   node.modelCapability(modelID, "supports_vision"),
+					SupportsThinking: node.modelCapability(modelID, "supports_thinking"),
+				})
 			}
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
+}
+
+func (node Node) modelCapability(modelID, key string) bool {
+	for _, service := range node.Services {
+		if !service.Healthy || !slices.Contains(service.Models, modelID) {
+			continue
+		}
+		if value, ok := service.Meta[key].(bool); ok && value {
+			return true
+		}
+	}
+	return false
 }
 
 // Nodes lists the live nodes, sorted by ID.

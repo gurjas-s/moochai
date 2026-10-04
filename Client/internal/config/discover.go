@@ -44,7 +44,15 @@ type ollamaShowResponse struct {
 	Details struct {
 		Family string `json:"family"`
 	} `json:"details"`
-	ModelInfo map[string]any `json:"model_info"`
+	ModelInfo    map[string]any `json:"model_info"`
+	Capabilities []string       `json:"capabilities"`
+}
+
+type ollamaDetails struct {
+	ContextWindow  int
+	SupportsTools  bool
+	SupportsVision bool
+	SupportsThinking bool
 }
 
 // DiscoverBackend queries one backend and builds broadcast Service objects.
@@ -75,12 +83,23 @@ func DiscoverBackend(ctx context.Context, client *http.Client, backend Backend) 
 		if propsCtx > 0 {
 			contextWindow = &propsCtx
 		}
+		meta := map[string]any{}
 		if backend.ResolvedProvider() == ProviderOllama {
-			if n, err := fetchOllamaCtx(ctx, client, backend, entry.ID); err == nil && n > 0 {
-				contextWindow = &n
+			if details, err := fetchOllamaDetails(ctx, client, backend, entry.ID); err == nil {
+				if details.ContextWindow > 0 {
+					contextWindow = &details.ContextWindow
+				}
+				if details.SupportsTools {
+					meta["supports_tools"] = true
+				}
+				if details.SupportsVision {
+					meta["supports_vision"] = true
+				}
+				if details.SupportsThinking {
+					meta["supports_thinking"] = true
+				}
 			}
 		}
-		meta := map[string]any{}
 		if contextWindow != nil && *contextWindow > 0 {
 			meta["context_window"] = *contextWindow
 		}
@@ -242,29 +261,40 @@ func fetchLlamaCtx(ctx context.Context, client *http.Client, backend Backend) (i
 	return 0, fmt.Errorf("props carry no n_ctx")
 }
 
-func fetchOllamaCtx(ctx context.Context, client *http.Client, backend Backend, model string) (int, error) {
+func fetchOllamaDetails(ctx context.Context, client *http.Client, backend Backend, model string) (ollamaDetails, error) {
+	var result ollamaDetails
 	endpoint, err := url.Parse(backend.Endpoint)
 	if err != nil {
-		return 0, err
+		return result, err
 	}
 	endpoint.Path = "/api/show"
 	body, _ := json.Marshal(map[string]string{"model": model})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint.String(), bytes.NewReader(body))
 	if err != nil {
-		return 0, err
+		return result, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, err
+		return result, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("show returned HTTP %d", resp.StatusCode)
+		return result, fmt.Errorf("show returned HTTP %d", resp.StatusCode)
 	}
 	var show ollamaShowResponse
 	if err := json.NewDecoder(resp.Body).Decode(&show); err != nil {
-		return 0, err
+		return result, err
+	}
+	for _, capability := range show.Capabilities {
+		switch capability {
+		case "tools":
+			result.SupportsTools = true
+		case "vision":
+			result.SupportsVision = true
+		case "thinking":
+			result.SupportsThinking = true
+		}
 	}
 	arch := show.Details.Family
 	if arch == "" {
@@ -275,18 +305,20 @@ func fetchOllamaCtx(ctx context.Context, client *http.Client, backend Backend, m
 	if arch != "" {
 		if raw, ok := show.ModelInfo[arch+".context_length"]; ok {
 			if n, ok := jsonNumberToInt(raw); ok {
-				return n, nil
+				result.ContextWindow = n
+				return result, nil
 			}
 		}
 	}
 	for key, raw := range show.ModelInfo {
 		if strings.HasSuffix(key, ".context_length") {
 			if n, ok := jsonNumberToInt(raw); ok {
-				return n, nil
+				result.ContextWindow = n
+				return result, nil
 			}
 		}
 	}
-	return 0, fmt.Errorf("show carries no context_length for %q", model)
+	return result, nil
 }
 
 func jsonNumberToInt(raw any) (int, bool) {

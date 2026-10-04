@@ -93,6 +93,17 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 		"modelfile": "", "parameters": "", "template": "", "details": info,
 		"capabilities": []string{"completion"},
 	}
+	capabilities := result["capabilities"].([]string)
+	if model.SupportsTools {
+		capabilities = append(capabilities, "tools")
+	}
+	if model.SupportsVision {
+		capabilities = append(capabilities, "vision")
+	}
+	if model.SupportsThinking {
+		capabilities = append(capabilities, "thinking")
+	}
+	result["capabilities"] = capabilities
 	if model.MaxModelLen > 0 {
 		result["model_info"] = map[string]any{
 			"general.architecture": "mooch",
