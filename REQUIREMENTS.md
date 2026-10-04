@@ -1,19 +1,19 @@
-# Peer AI Client – Minimal Requirements (MVP)
+# Mooch.ai Client – Minimal Requirements (MVP)
 
-Goal: Build a single Go binary that advertises local AI services to the central Peer AI server over Tailscale, and forwards routed OpenAI-compatible requests to the correct local backend.
+Goal: Build a single Go binary that advertises local AI services to the central Mooch.ai server over Tailscale, and forwards routed OpenAI-compatible requests to the correct local backend.
 
 **Broadcasting to central = CUSTOM JSON. The runtime API for tools = OpenAI-compatible.**
 
 ## 1. Identity & Tailscale
 
 - [ ] **Get Tailscale IP** – Resolve own Tailscale IPv4 using `tailscale.com/client/tailscale` or `tailscale ip -4`. Only use Tailscale IPs for client<->central comms.
-- [ ] **Stable node_id** – Generate once, persist to `~/.config/peerai/node.id`. Fallback: `hostname` + short random suffix if missing.
+- [ ] **Stable node_id** – Generate once, persist to `~/.config/mooch/node.id`. Fallback: `hostname` + short random suffix if missing.
 - [ ] **Own listen addr** – Know `tailscale_ip:listen_port` to send in register/heartbeat.
 
 ## 2. Config
 
 - [ ] **CLI flag** – `--config <path>` to load config file.
-- [ ] **Default paths** – Also check `~/.config/peerai/node.yaml`, `./peerai-node.yaml` if flag not given.
+- [ ] **Default paths** – Also check `~/.config/mooch/node.yaml`, `./mooch-node.yaml` if flag not given.
 - [ ] **Required fields** – `network.central_host`, `network.central_port`, `network.listen_host`, `network.listen_port`
 - [ ] **Optional with defaults** – `network.heartbeat_interval` (default `15s`), `node.name` (fallback to hostname), `node.id` (fallback to generated)
 - [ ] **Services list** – `services[]` must be valid (see #3)
@@ -71,7 +71,7 @@ Each service object must include:
 ## 6. Request Forwarding (Client -> Local Backend)
 
 - [ ] **Route by model** – On incoming OpenAI request, find which configured service has `request.model` in its `models[]`. Use that service.
-- [ ] **Unknown model** – If no match, return `400 Bad Request` with clear JSON error + `X-PeerAI-Node: <node_id>`
+- [ ] **Unknown model** – If no match, return `400 Bad Request` with clear JSON error + `X-Mooch-Node: <node_id>`
 - [ ] **Build upstream URL** – `service.endpoint + service.api_base + <remaining path>` (preserve query params)
 - [ ] **Header passthrough** – Copy `Content-Type`, `Accept`, `Authorization`, `User-Agent`. Remove hop-by-hop: `Connection`, `TE`, `Transfer-Encoding` (handled), `Upgrade`, `Proxy-*`
 - [ ] **Body passthrough** – Forward raw request body unchanged
@@ -79,7 +79,7 @@ Each service object must include:
 - [ ] **Non-streaming** – Use short upstream timeout for connect/read, but **never** force a total deadline that cuts off an active stream
 - [ ] **Use ReverseProxy** – Prefer `net/http/httputil.ReverseProxy`. Set `Director` to rewrite `req.URL`. Add minimal `ErrorHandler`.
 - [ ] **Preserve errors** – If upstream returns error JSON, passthrough status + body when possible
-- [ ] **Debug header** – Add `X-PeerAI-Node: <node_id>` to error responses
+- [ ] **Debug header** – Add `X-Mooch-Node: <node_id>` to error responses
 
 ## 7. Health, Resilience & Ops
 
@@ -87,7 +87,7 @@ Each service object must include:
 - [ ] **Graceful shutdown** – On `SIGINT`/`SIGTERM`: stop heartbeat loop, close routed HTTP server cleanly, exit within ~5s
 - [ ] **Structured logging** – Use `log/slog`. Include at least: `level`, `msg`, `node_id`, `component`, `method`, `path`, `model` on proxy logs
 - [ ] **Version constant** – Inject `version` (e.g. `v0.1.0-dev`) into register/heartbeat/healthz
-- [ ] **Single binary** – `go build ./cmd/peerai-node` must produce exactly one executable
+- [ ] **Single binary** – `go build ./cmd/mooch-node` must produce exactly one executable
 - [ ] **Minimal deps** – Avoid web frameworks. Stick to stdlib + only what's needed (`yaml.v3`, `tailscale.com/*` if used)
 - [ ] **Config reload (nice)** – Support `SIGHUP` to reload config and refresh services (or just re-register) – minimal but fine
 

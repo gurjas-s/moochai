@@ -14,11 +14,11 @@ import (
 	"syscall"
 	"time"
 
-	"peer-ai-client/internal/central"
-	"peer-ai-client/internal/config"
-	"peer-ai-client/internal/identity"
-	"peer-ai-client/internal/proxy"
-	"peer-ai-client/internal/server"
+	"mooch-client/internal/central"
+	"mooch-client/internal/config"
+	"mooch-client/internal/identity"
+	"mooch-client/internal/proxy"
+	"mooch-client/internal/server"
 )
 
 const probeTimeout = 3 * time.Second
@@ -32,8 +32,8 @@ const (
 
 func main() {
 	configPath := flag.String("config", "", "path to node YAML configuration")
-	logMode := flag.String("log-mode", logDefault("PEERAI_LOG_MODE", logModeRequests), "log mode: requests or dev")
-	logFormat := flag.String("log-format", logDefault("PEERAI_LOG_FORMAT", "text"), "log format: text or json")
+	logMode := flag.String("log-mode", logDefault("MOOCH_LOG_MODE", logModeRequests), "log mode: requests or dev")
+	logFormat := flag.String("log-format", logDefault("MOOCH_LOG_FORMAT", "text"), "log format: text or json")
 	flag.Parse()
 	if err := run(*configPath, *logMode, *logFormat); err != nil {
 		slog.Error("node stopped", "error", err)

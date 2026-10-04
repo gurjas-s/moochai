@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"peerai-serv/internal/registry"
-	"peerai-serv/internal/respond"
+	"mooch-serv/internal/registry"
+	"mooch-serv/internal/respond"
 )
 
 const maxBody = 32 << 20
@@ -54,11 +54,11 @@ func (h *Handler) tags(w http.ResponseWriter, _ *http.Request) {
 	for _, m := range h.reg.Models() {
 		out = append(out, model{
 			Name: m.ID, Model: m.ID, ModifiedAt: time.Now().UTC(),
-			Digest: "peerai-" + m.ID,
+			Digest: "mooch-" + m.ID,
 			Details: map[string]any{
 				"format":             "gguf",
-				"family":             "peerai",
-				"families":           []string{"peerai"},
+				"family":             "mooch",
+				"families":           []string{"mooch"},
 				"parameter_size":     "unknown",
 				"quantization_level": "unknown",
 			},
@@ -81,8 +81,8 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 	}
 	info := map[string]any{
 		"format":             "gguf",
-		"family":             "peerai",
-		"families":           []string{"peerai"},
+		"family":             "mooch",
+		"families":           []string{"mooch"},
 		"parameter_size":     "unknown",
 		"quantization_level": "unknown",
 	}
@@ -95,8 +95,8 @@ func (h *Handler) show(w http.ResponseWriter, r *http.Request) {
 	}
 	if model.MaxModelLen > 0 {
 		result["model_info"] = map[string]any{
-			"general.architecture":      "peerai",
-			"peerai.context_length":    model.MaxModelLen,
+			"general.architecture": "mooch",
+			"mooch.context_length": model.MaxModelLen,
 		}
 	}
 	respond.JSON(w, result)
@@ -143,11 +143,11 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 }
 
 type chatRequest struct {
-	Model    string            `json:"model"`
-	Messages []map[string]any  `json:"messages"`
-	Stream   bool              `json:"stream"`
-	Tools    []map[string]any  `json:"tools,omitempty"`
-	Options  map[string]any    `json:"options,omitempty"`
+	Model    string           `json:"model"`
+	Messages []map[string]any `json:"messages"`
+	Stream   bool             `json:"stream"`
+	Tools    []map[string]any `json:"tools,omitempty"`
+	Options  map[string]any   `json:"options,omitempty"`
 }
 
 func openAIRequest(req chatRequest) map[string]any {

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"peer-ai-client/internal/config"
+	"mooch-client/internal/config"
 )
 
 func TestRegisterAndHeartbeatSendExactPayload(t *testing.T) {

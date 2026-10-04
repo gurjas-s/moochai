@@ -1,4 +1,4 @@
-# PeerAI Central
+# Mooch.ai Central
 
 Central tracks the live nodes on the tailnet and forwards OpenAI requests to a node that serves the requested model. All data is in memory.
 
@@ -43,7 +43,7 @@ live nodes and models. Central relies on the tailnet to limit who can connect.
 
 ## Join flow
 
-1. `./build-nodes.sh` builds `peerai-node-<os>-<arch>` binaries into `dist/`.
+1. `./build-nodes.sh` builds `mooch-node-<os>-<arch>` binaries into `dist/`.
 2. A person on the tailnet opens `GET /join`. The page shows one command.
 3. `curl -fsSL <central>/join.sh | sh` downloads the binary and a default
    config from central, and then starts the node. The config points to the
@@ -53,7 +53,7 @@ live nodes and models. Central relies on the tailnet to limit who can connect.
 
 | Package | Job |
 |---------|-----|
-| `cmd/peerai-central` | Flags, Tailscale listen address, wiring, expiry loop, graceful shutdown |
+| `cmd/mooch-central` | Flags, Tailscale listen address, wiring, expiry loop, graceful shutdown |
 | `internal/api` | Control-plane routes: node register/heartbeat/list, `/healthz` |
 | `internal/router` | OpenAI routes: `/v1/models` and forwarding by `model` |
 | `internal/registry` | In-memory node list: upsert, expiry, model lookup |
@@ -67,8 +67,8 @@ live nodes and models. Central relies on the tailnet to limit who can connect.
 
 ```sh
 ./build-nodes.sh                      # build node binaries into dist/ (for /join)
-go run ./cmd/peerai-central           # listen on the Tailscale IPv4, port 8080
-go run ./cmd/peerai-central -addr 127.0.0.1:8080   # local use only
+go run ./cmd/mooch-central           # listen on the Tailscale IPv4, port 8080
+go run ./cmd/mooch-central -addr 127.0.0.1:8080   # local use only
 ```
 
 | Flag | Default | Use |
@@ -107,7 +107,7 @@ go test ./... -count=1
 | POST | `/api/chat` | Translate Ollama chat to OpenAI chat |
 | GET | `/join` | Join page (HTML) |
 | GET | `/join.sh` | Node install script |
-| GET | `/join/peerai-node.yaml` | Default node config |
+| GET | `/join/mooch-node.yaml` | Default node config |
 | GET | `/join/bin/{os}-{arch}` | Node binary |
 | GET | `/app` | Test UI for nodes and models |
 
@@ -171,7 +171,7 @@ To use central from an OpenAI SDK, set the base URL to `$C/v1`. The SDK needs an
 
 ```sh
 curl -fsSL $C/join.sh | sh               # install and start a node
-curl $C/join/peerai-node.yaml            # default config
+curl $C/join/mooch-node.yaml            # default config
 curl -O $C/join/bin/darwin-arm64         # binary: darwin|linux - amd64|arm64
 ```
 

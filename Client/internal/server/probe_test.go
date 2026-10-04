@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"peer-ai-client/internal/config"
+	"mooch-client/internal/config"
 )
 
 func TestProbeServiceMarksHealthy(t *testing.T) {

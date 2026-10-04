@@ -22,7 +22,7 @@ import (
 	"syscall"
 	"time"
 
-	"peer-ai-client/internal/config"
+	"mooch-client/internal/config"
 )
 
 // ProxyHandler handles an OpenAI route after the listener has accepted it.
@@ -361,7 +361,7 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	// Attach node identity to error responses (used by stub now,
 	// real proxy in #6 should do the same).
 	if s.opts.NodeID != "" {
-		w.Header().Set("X-PeerAI-Node", s.opts.NodeID)
+		w.Header().Set("X-Mooch-Node", s.opts.NodeID)
 	}
 	proxy.ServeProxy(w, r)
 }

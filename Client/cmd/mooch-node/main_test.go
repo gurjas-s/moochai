@@ -43,11 +43,11 @@ func TestSetupLoggingLevels(t *testing.T) {
 }
 
 func TestLogDefaultReadsEnv(t *testing.T) {
-	t.Setenv("PEERAI_LOG_MODE_TEST", "dev")
-	if got := logDefault("PEERAI_LOG_MODE_TEST", "requests"); got != "dev" {
+	t.Setenv("MOOCH_LOG_MODE_TEST", "dev")
+	if got := logDefault("MOOCH_LOG_MODE_TEST", "requests"); got != "dev" {
 		t.Errorf("logDefault = %q, want dev", got)
 	}
-	if got := logDefault("PEERAI_LOG_MODE_TEST_EMPTY", "requests"); got != "requests" {
+	if got := logDefault("MOOCH_LOG_MODE_TEST_EMPTY", "requests"); got != "requests" {
 		t.Errorf("logDefault fallback = %q, want requests", got)
 	}
 }

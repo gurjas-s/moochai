@@ -12,8 +12,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
-	"peerai-serv/internal/feed"
-	"peerai-serv/internal/registry"
+	"mooch-serv/internal/feed"
+	"mooch-serv/internal/registry"
 )
 
 const (
@@ -23,14 +23,14 @@ const (
 )
 
 var (
-	accent  = lipgloss.Color("4")
+	accent  = lipgloss.Color("#2dd4bf")
 	green   = lipgloss.Color("2")
 	yellow  = lipgloss.Color("3")
 	cyan    = lipgloss.Color("6")
 	magenta = lipgloss.Color("5")
 	faint   = lipgloss.Color("8")
 
-	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(accent).Padding(0, 1)
+	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("0")).Background(accent).Padding(0, 1)
 	labelStyle = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	dimStyle   = lipgloss.NewStyle().Foreground(faint)
 	boxStyle   = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(faint).Padding(0, 1)
@@ -148,16 +148,60 @@ func (m *model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, nodes, console, footer)
 }
 
+// logoArt is the title in the ANSI Shadow figlet font.
+var logoArt = []string{
+	"███╗   ███╗ ██████╗  ██████╗  ██████╗██╗  ██╗    █████╗ ██╗",
+	"████╗ ████║██╔═══██╗██╔═══██╗██╔════╝██║  ██║   ██╔══██╗██║",
+	"██╔████╔██║██║   ██║██║   ██║██║     ███████║   ███████║██║",
+	"██║╚██╔╝██║██║   ██║██║   ██║██║     ██╔══██║   ██╔══██║██║",
+	"██║ ╚═╝ ██║╚██████╔╝╚██████╔╝╚██████╗██║  ██║██╗██║  ██║██║",
+	"╚═╝     ╚═╝ ╚═════╝  ╚═════╝  ╚═════╝╚═╝  ╚═╝╚═╝╚═╝  ╚═╝╚═╝",
+}
+
+// Gradient end points: teal at the top left, blue at the bottom right.
+var gradientFrom, gradientTo = [3]float64{0x2d, 0xe2, 0xc9}, [3]float64{0x3b, 0x6c, 0xf6}
+
+// logo is the boxed title with a diagonal teal to blue gradient. The colours do not change, so logo renders once.
+var logo = func() string {
+	width := ansi.StringWidth(logoArt[0])
+	rows := make([]string, len(logoArt))
+	for y, line := range logoArt {
+		var b strings.Builder
+		for x, r := range []rune(line) {
+			t := float64(x+3*y) / float64(width+3*len(logoArt))
+			var c [3]int
+			for i := range c {
+				c[i] = int(gradientFrom[i] + t*(gradientTo[i]-gradientFrom[i]))
+			}
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", c[0], c[1], c[2]))).Render(string(r)))
+		}
+		rows[y] = b.String()
+	}
+	return lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#2dd4bf")).
+		Padding(0, 2).Render(strings.Join(rows, "\n"))
+}()
+
 func (m *model) header() string {
 	where := lipgloss.NewStyle().Foreground(green).Render("● tailnet " + m.addr)
-	hint := dimStyle.Render("OpenAI base URL ") + "http://" + m.addr + "/v1" +
-		dimStyle.Render("   join ") + "curl -fsSL http://" + m.addr + "/join.sh | sh"
+	hints := []string{
+		dimStyle.Render("OpenAI base URL ") + "http://" + m.addr + "/v1",
+		dimStyle.Render("join            ") + "curl -fsSL http://" + m.addr + "/join.sh | sh",
+	}
 	if !m.tailnet {
 		where = lipgloss.NewStyle().Foreground(yellow).Render("● local only " + m.addr)
-		hint = dimStyle.Render("Other machines cannot join. Listen on a Tailscale IP to share models.")
+		hints = []string{dimStyle.Render("Other machines cannot join."), dimStyle.Render("Listen on a Tailscale IP to share models.")}
 	}
-	top := titleStyle.Render("PeerAI Central") + "  " + where
-	return ansi.Truncate(" "+top, m.width, "…") + "\n" + ansi.Truncate(" "+hint, m.width, "…")
+	info := append([]string{labelStyle.Render("CENTRAL"), where, ""}, hints...)
+	// A narrow terminal shows a one-line title in place of the logo.
+	if m.width < lipgloss.Width(logo)+30 {
+		top := titleStyle.Render("Mooch.ai Central") + "  " + where
+		return ansi.Truncate(" "+top, m.width, "…") + "\n" + ansi.Truncate(" "+hints[0], m.width, "…")
+	}
+	room := m.width - lipgloss.Width(logo) - 3
+	for i, l := range info {
+		info[i] = ansi.Truncate(l, room, "…")
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Center, logo, "   ", strings.Join(info, "\n"))
 }
 
 func (m *model) nodeList(width int) string {

@@ -37,7 +37,7 @@ func DefaultNodeIDPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("get user config directory: %w", err)
 	}
-	return filepath.Join(configDir, "peerai", "node.id"), nil
+	return filepath.Join(configDir, "mooch", "node.id"), nil
 }
 
 // LoadOrCreateNodeID reads a stable ID or creates and persists one.
@@ -95,7 +95,7 @@ func LoadOrCreateNodeID(path string) (string, error) {
 func generateNodeID() (string, error) {
 	host, err := os.Hostname()
 	if err != nil || strings.TrimSpace(host) == "" {
-		host = "peerai-node"
+		host = "mooch-node"
 	}
 	host = strings.ReplaceAll(strings.TrimSpace(host), " ", "-")
 	random := make([]byte, 4)

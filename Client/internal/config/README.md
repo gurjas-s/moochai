@@ -1,6 +1,6 @@
 # Configuration API
 
-Package: `peer-ai-client/internal/config`
+Package: `mooch-client/internal/config`
 
 This document describes public functions, signatures, and usage.
 It does not describe implementation details.
@@ -31,7 +31,7 @@ func ResolvePath(path string) (string, error)
 
 Return the selected configuration path.
 An explicit path has priority.
-An empty path checks `~/.config/peerai/node.yaml` and `./peerai-node.yaml`.
+An empty path checks `~/.config/mooch/node.yaml` and `./mooch-node.yaml`.
 
 ```go
 path, err := config.ResolvePath("node.yaml")

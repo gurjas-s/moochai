@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"peerai-serv/internal/registry"
+	"mooch-serv/internal/registry"
 )
 
 func TestTagsAndShow(t *testing.T) {
@@ -40,7 +40,7 @@ func TestTagsAndShow(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	body, _ = io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"general.context_length":8192`) {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `"mooch.context_length":8192`) {
 		t.Fatalf("show = %d %s", resp.StatusCode, body)
 	}
 }

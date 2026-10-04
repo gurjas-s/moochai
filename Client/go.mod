@@ -1,4 +1,4 @@
-module peer-ai-client
+module mooch-client
 
 go 1.24.5
 

@@ -256,8 +256,8 @@ func ResolvePath(path string) (string, error) {
 		return "", fmt.Errorf("get user config directory: %w", err)
 	}
 	candidates := []string{
-		filepath.Join(configDir, "peerai", "node.yaml"),
-		"peerai-node.yaml",
+		filepath.Join(configDir, "mooch", "node.yaml"),
+		"mooch-node.yaml",
 	}
 	for _, candidate := range candidates {
 		if _, err := os.Stat(candidate); err == nil {

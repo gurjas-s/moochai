@@ -1,6 +1,6 @@
-# PeerAI Client Setup
+# Mooch.ai Client Setup
 
-The PeerAI client runs beside one or more local AI backends.
+The Mooch.ai client runs beside one or more local AI backends.
 The client advertises the backends to central over Tailscale.
 The client also forwards model requests to the correct backend.
 
@@ -11,7 +11,7 @@ Install these tools before you start:
 - Go 1.24 or later.
 - Tailscale.
 - A local OpenAI-compatible backend.
-- Access to the PeerAI central server.
+- Access to the Mooch.ai central server.
 
 The client uses the Tailscale IPv4 address for node-to-central traffic.
 Make sure the client and central server share a Tailscale network.
@@ -25,20 +25,20 @@ cd Client
 make build
 ```
 
-The command creates one executable at `bin/peerai-node`.
+The command creates one executable at `bin/mooch-node`.
 For debug work, build the dev binary instead:
 
 ```sh
 make build-dev
 ```
 
-The command creates `bin/peerai-node-dev`.
+The command creates `bin/mooch-node-dev`.
 Both binaries use the same optimized build.
 Dev differs only in log output.
 Use it for debug work:
 
 ```sh
-make run-dev CONFIG=./peerai-node.yaml
+make run-dev CONFIG=./mooch-node.yaml
 ```
 
 `make run` starts the standard binary with request logs.
@@ -51,10 +51,10 @@ Run `make check` before a push (format check, vet, tests) and `make clean` to re
 Copy the sample file:
 
 ```sh
-cp peerai-node.yaml.example peerai-node.yaml
+cp mooch-node.yaml.example mooch-node.yaml
 ```
 
-Edit `peerai-node.yaml`:
+Edit `mooch-node.yaml`:
 
 ```yaml
 network:
@@ -92,7 +92,7 @@ Set `network.listen_port` to the port that central can reach.
 Set `backends[].endpoint` to the local backend URL.
 
 Leave `node.id` empty to generate a stable ID.
-The client stores the generated ID in `~/.config/peerai/node.id`.
+The client stores the generated ID in `~/.config/mooch/node.id`.
 Set `node.name` to an operator-readable name.
 The client uses the machine hostname when `node.name` is empty.
 
@@ -114,23 +114,23 @@ The client checks backend health with `GET /v1/models`.
 Start the client with an explicit configuration path:
 
 ```sh
-./peerai-node --config ./peerai-node.yaml
+./mooch-node --config ./mooch-node.yaml
 ```
 
 When `--config` is not provided, the client checks these paths:
 
-1. `~/.config/peerai/node.yaml`
-2. `./peerai-node.yaml`
+1. `~/.config/mooch/node.yaml`
+2. `./mooch-node.yaml`
 
 ## Logging
 
 The client has two log modes.
-Set the mode with `--log-mode` or `PEERAI_LOG_MODE`.
-Set the format with `--log-format` or `PEERAI_LOG_FORMAT` (`text` or `json`).
+Set the mode with `--log-mode` or `MOOCH_LOG_MODE`.
+Set the format with `--log-format` or `MOOCH_LOG_FORMAT` (`text` or `json`).
 
 ```sh
-./peerai-node --config ./peerai-node.yaml --log-mode requests --log-format text
-PEERAI_LOG_MODE=dev PEERAI_LOG_FORMAT=json ./peerai-node --config ./peerai-node.yaml
+./mooch-node --config ./mooch-node.yaml --log-mode requests --log-format text
+MOOCH_LOG_MODE=dev MOOCH_LOG_FORMAT=json ./mooch-node --config ./mooch-node.yaml
 ```
 
 - `requests` (default): logs HTTP requests plus warnings and errors.
@@ -191,7 +191,7 @@ Each service contains its current health state.
 Press `Ctrl+C` or send `SIGTERM`:
 
 ```sh
-kill -TERM <peerai-node-pid>
+kill -TERM <mooch-node-pid>
 ```
 
 The client stops the heartbeat loop and shuts down the HTTP server.
@@ -203,7 +203,7 @@ The client stops the heartbeat loop and shuts down the HTTP server.
 Pass the file path explicitly:
 
 ```sh
-./peerai-node --config /path/to/node.yaml
+./mooch-node --config /path/to/node.yaml
 ```
 
 ### Tailscale address cannot be resolved

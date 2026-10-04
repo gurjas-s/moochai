@@ -1,6 +1,6 @@
 # Central API
 
-Package: `peer-ai-client/internal/central`
+Package: `mooch-client/internal/central`
 
 This document describes public functions, signatures, and usage.
 It does not describe implementation details.

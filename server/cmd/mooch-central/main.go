@@ -1,4 +1,4 @@
-// Command peerai-central routes OpenAI requests from tools to PeerAI nodes on the tailnet.
+// Command mooch-central routes OpenAI requests from tools to Mooch.ai nodes on the tailnet.
 package main
 
 import (
@@ -16,14 +16,14 @@ import (
 	"syscall"
 	"time"
 
-	"peerai-serv/internal/api"
-	"peerai-serv/internal/app"
-	"peerai-serv/internal/feed"
-	"peerai-serv/internal/join"
-	"peerai-serv/internal/ollama"
-	"peerai-serv/internal/registry"
-	"peerai-serv/internal/router"
-	"peerai-serv/internal/tui"
+	"mooch-serv/internal/api"
+	"mooch-serv/internal/app"
+	"mooch-serv/internal/feed"
+	"mooch-serv/internal/join"
+	"mooch-serv/internal/ollama"
+	"mooch-serv/internal/registry"
+	"mooch-serv/internal/router"
+	"mooch-serv/internal/tui"
 )
 
 var tailscaleRange = netip.MustParsePrefix("100.64.0.0/10")
@@ -214,5 +214,5 @@ func findTailscaleIPv4(addrs []net.Addr) (netip.Addr, bool) {
 
 func printJoinInfo(w io.Writer, ip netip.Addr, port string) {
 	base := "http://" + net.JoinHostPort(ip.String(), port)
-	fmt.Fprintf(w, "\nPeerAI central is up on the tailnet.\n\n  Join page:   %[1]s/join\n  Join command (macOS/Linux):\n    curl -fsSL %[1]s/join.sh | sh\n  OpenAI base URL for tools: %[1]s/v1\n", base)
+	fmt.Fprintf(w, "\nMooch.ai central is up on the tailnet.\n\n  Join page:   %[1]s/join\n  Join command (macOS/Linux):\n    curl -fsSL %[1]s/join.sh | sh\n  OpenAI base URL for tools: %[1]s/v1\n", base)
 }

@@ -167,7 +167,7 @@ func TestHeaderPassthroughAndHopByHopStripped(t *testing.T) {
 	rr := postJSON(t, h, "/v1/completions", `{"model":"m"}`, map[string]string{
 		"Accept":        "application/json",
 		"Authorization": "Bearer sk-test",
-		"User-Agent":    "peerai-test/0.1",
+		"User-Agent":    "mooch-test/0.1",
 		"Connection":    "keep-alive",
 		"Upgrade":       "websocket",
 		"Proxy-Foo":     "bar",
@@ -178,7 +178,7 @@ func TestHeaderPassthroughAndHopByHopStripped(t *testing.T) {
 	for k, want := range map[string]string{
 		"Accept":        "application/json",
 		"Authorization": "Bearer sk-test",
-		"User-Agent":    "peerai-test/0.1",
+		"User-Agent":    "mooch-test/0.1",
 		"Content-Type":  "application/json",
 	} {
 		if rec.header.Get(k) != want {

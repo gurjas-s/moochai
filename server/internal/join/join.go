@@ -14,10 +14,10 @@ import (
 	"regexp"
 	texttemplate "text/template"
 
-	"peerai-serv/internal/respond"
+	"mooch-serv/internal/respond"
 )
 
-const binaryPrefix = "peerai-node-"
+const binaryPrefix = "mooch-node-"
 
 // Only "<os>-<arch>", so a request cannot read files outside binDir.
 var platformRE = regexp.MustCompile(`^[a-z0-9]+-[a-z0-9]+$`)
@@ -33,7 +33,7 @@ func New(binDir string) *Handler {
 
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /join", serveTemplate(pageTmpl, "text/html; charset=utf-8"))
-	mux.HandleFunc("GET /join/peerai-node.yaml", serveTemplate(configTmpl, "application/yaml; charset=utf-8"))
+	mux.HandleFunc("GET /join/mooch-node.yaml", serveTemplate(configTmpl, "application/yaml; charset=utf-8"))
 
 	script := serveTemplate(scriptTmpl, "text/x-shellscript; charset=utf-8")
 	mux.HandleFunc("GET /join.sh", func(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +62,7 @@ var pageTmpl = template.Must(template.New("page").Parse(`<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Join PeerAI</title>
+<title>Join Mooch.ai</title>
 <style>
 body { font: 16px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; background: #fff; }
 pre { background: #f2f2f2; padding: 1rem; overflow-x: auto; border-radius: 6px; }
@@ -71,8 +71,8 @@ code { font-family: ui-monospace, Menlo, monospace; }
 </style>
 </head>
 <body>
-<h1>Join PeerAI</h1>
-<p>This page shares your local models with PeerAI central at <code>{{.CentralURL}}</code>.</p>
+<h1>Join Mooch.ai</h1>
+<p>This page shares your local models with Mooch.ai central at <code>{{.CentralURL}}</code>.</p>
 <h2>Before you start</h2>
 <ol>
 <li>Connect Tailscale to the same tailnet as central. You see this page, so this step is done.</li>
@@ -81,12 +81,12 @@ code { font-family: ui-monospace, Menlo, monospace; }
 <h2>Start the node</h2>
 <p>Run this command in a terminal (macOS or Linux):</p>
 <pre><code>curl -fsSL {{.CentralURL}}/join.sh | sh</code></pre>
-<p>The command installs the node in <code>~/.peerai</code> and starts it.
+<p>The command installs the node in <code>~/.mooch</code> and starts it.
 Keep the terminal open. Press Ctrl+C to stop the node.
 Run the same command again to start the node later.</p>
 <h2>Change the model server</h2>
 <p>The default config uses Ollama at <code>http://127.0.0.1:11434</code>.
-For a different server, edit <code>~/.peerai/peerai-node.yaml</code> and run the command again.</p>
+For a different server, edit <code>~/.mooch/mooch-node.yaml</code> and run the command again.</p>
 <h2>Use the models</h2>
 <p>Set the OpenAI base URL of your app to <code>{{.CentralURL}}/v1</code>.
 See all models at <a href="{{.CentralURL}}/v1/models">{{.CentralURL}}/v1/models</a>.</p>
@@ -94,7 +94,7 @@ See all models at <a href="{{.CentralURL}}/v1/models">{{.CentralURL}}/v1/models<
 </html>
 `))
 
-var configTmpl = texttemplate.Must(texttemplate.New("config").Parse(`# PeerAI node config. Made by central at {{.CentralURL}}.
+var configTmpl = texttemplate.Must(texttemplate.New("config").Parse(`# Mooch.ai node config. Made by central at {{.CentralURL}}.
 network:
   central_host: "{{.Host}}"
   central_port: {{.Port}}
@@ -115,18 +115,18 @@ backends:
 `))
 
 var scriptTmpl = texttemplate.Must(texttemplate.New("script").Parse(`#!/bin/sh
-# PeerAI node installer. Made by central at {{.CentralURL}}.
+# Mooch.ai node installer. Made by central at {{.CentralURL}}.
 set -eu
 
 CENTRAL="{{.CentralURL}}"
-DIR="${PEERAI_DIR:-$HOME/.peerai}"
+DIR="${MOOCH_DIR:-$HOME/.mooch}"
 mkdir -p "$DIR/bin"
 
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 case "$(uname -m)" in
   x86_64|amd64) arch=amd64 ;;
   arm64|aarch64) arch=arm64 ;;
-  *) echo "peerai: CPU type $(uname -m) is not supported" >&2; exit 1 ;;
+  *) echo "mooch: CPU type $(uname -m) is not supported" >&2; exit 1 ;;
 esac
 
 # The node reads its Tailscale IP from the tailscale command.
@@ -137,35 +137,35 @@ if ! command -v tailscale >/dev/null 2>&1; then
     printf '#!/bin/sh\nexec %s "$@"\n' "$app" > "$DIR/bin/tailscale"
     chmod +x "$DIR/bin/tailscale"
   else
-    echo "peerai: the tailscale command is not found. Install Tailscale first." >&2
+    echo "mooch: the tailscale command is not found. Install Tailscale first." >&2
     exit 1
   fi
 fi
 PATH="$DIR/bin:$PATH"
 export PATH
 if ! tailscale ip -4 >/dev/null 2>&1; then
-  echo "peerai: Tailscale is not connected. Connect Tailscale and try again." >&2
+  echo "mooch: Tailscale is not connected. Connect Tailscale and try again." >&2
   exit 1
 fi
 
-echo "peerai: download node for $os-$arch"
-curl -fsSL "$CENTRAL/join/bin/$os-$arch" -o "$DIR/bin/peerai-node.tmp"
-chmod +x "$DIR/bin/peerai-node.tmp"
-mv "$DIR/bin/peerai-node.tmp" "$DIR/bin/peerai-node"
+echo "mooch: download node for $os-$arch"
+curl -fsSL "$CENTRAL/join/bin/$os-$arch" -o "$DIR/bin/mooch-node.tmp"
+chmod +x "$DIR/bin/mooch-node.tmp"
+mv "$DIR/bin/mooch-node.tmp" "$DIR/bin/mooch-node"
 
 # Keep an existing config, so that local edits stay.
-if [ ! -f "$DIR/peerai-node.yaml" ]; then
-  curl -fsSL "$CENTRAL/join/peerai-node.yaml" -o "$DIR/peerai-node.yaml"
-  echo "peerai: wrote $DIR/peerai-node.yaml"
+if [ ! -f "$DIR/mooch-node.yaml" ]; then
+  curl -fsSL "$CENTRAL/join/mooch-node.yaml" -o "$DIR/mooch-node.yaml"
+  echo "mooch: wrote $DIR/mooch-node.yaml"
 fi
 
 if ! curl -fsS -m 2 http://127.0.0.1:11434/v1/models >/dev/null 2>&1; then
-  echo "peerai: WARNING: Ollama does not respond at 127.0.0.1:11434." >&2
-  echo "peerai: Start it with 'ollama serve', or edit $DIR/peerai-node.yaml." >&2
+  echo "mooch: WARNING: Ollama does not respond at 127.0.0.1:11434." >&2
+  echo "mooch: Start it with 'ollama serve', or edit $DIR/mooch-node.yaml." >&2
 fi
 
-echo "peerai: start node. Press Ctrl+C to stop."
-exec "$DIR/bin/peerai-node" --config "$DIR/peerai-node.yaml"
+echo "mooch: start node. Press Ctrl+C to stop."
+exec "$DIR/bin/mooch-node" --config "$DIR/mooch-node.yaml"
 `))
 
 func serveTemplate(tmpl interface{ Execute(io.Writer, any) error }, contentType string) http.HandlerFunc {
