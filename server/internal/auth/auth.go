@@ -48,11 +48,11 @@ type group struct {
 }
 
 type Store struct {
-	mu      sync.Mutex
-	users   map[string]User
-	names   map[string]bool
-	keyToID map[string]string
-	groups  map[string]*group
+	storeLock sync.Mutex
+	users     map[string]User
+	names     map[string]bool
+	keyToID   map[string]string
+	groups    map[string]*group
 }
 
 func New() *Store {
@@ -69,8 +69,8 @@ func (s *Store) CreateUser(name string) (User, error) {
 	if err != nil {
 		return User{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.storeLock.Lock()
+	defer s.storeLock.Unlock()
 	if s.names[name] {
 		return User{}, errors.New("name is already taken")
 	}
@@ -86,8 +86,8 @@ func (s *Store) Authenticate(r *http.Request) (User, bool) {
 	if key == "" {
 		return User{}, false
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.storeLock.Lock()
+	defer s.storeLock.Unlock()
 	for stored, id := range s.keyToID {
 		if subtle.ConstantTimeCompare([]byte(stored), []byte(key)) == 1 {
 			u, ok := s.users[id]
@@ -110,8 +110,8 @@ func (s *Store) CreateGroup(owner User, name string) (Group, error) {
 	if err != nil {
 		return Group{}, err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.storeLock.Lock()
+	defer s.storeLock.Unlock()
 	g := &group{
 		id:        "g_" + randomHex(8),
 		name:      name,
@@ -124,8 +124,8 @@ func (s *Store) CreateGroup(owner User, name string) (Group, error) {
 }
 
 func (s *Store) ListGroups(userID string) []Group {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.storeLock.Lock()
+	defer s.storeLock.Unlock()
 	out := []Group{}
 	for _, g := range s.groups {
 		if g.members[userID] {
@@ -137,8 +137,8 @@ func (s *Store) ListGroups(userID string) []Group {
 }
 
 func (s *Store) GetGroup(callerID, groupID string) (Group, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.storeLock.Lock()
+	defer s.storeLock.Unlock()
 	g, ok := s.groups[groupID]
 	if !ok || !g.members[callerID] {
 		return Group{}, false
@@ -147,15 +147,15 @@ func (s *Store) GetGroup(callerID, groupID string) (Group, bool) {
 }
 
 func (s *Store) IsMember(groupID, userID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.storeLock.Lock()
+	defer s.storeLock.Unlock()
 	g, ok := s.groups[groupID]
 	return ok && g.members[userID]
 }
 
 func (s *Store) GroupIDsFor(userID string) map[string]bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.storeLock.Lock()
+	defer s.storeLock.Unlock()
 	out := map[string]bool{}
 	for id, g := range s.groups {
 		if g.members[userID] {
@@ -166,8 +166,8 @@ func (s *Store) GroupIDsFor(userID string) map[string]bool {
 }
 
 func (s *Store) AddMember(caller User, groupID, userID string) (Group, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.storeLock.Lock()
+	defer s.storeLock.Unlock()
 	g, ok := s.groups[groupID]
 	if !ok {
 		return Group{}, ErrGroupNotFound
@@ -184,8 +184,8 @@ func (s *Store) AddMember(caller User, groupID, userID string) (Group, error) {
 
 // The owner can remove any member except self. A member can remove only self.
 func (s *Store) RemoveMember(caller User, groupID, targetID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.storeLock.Lock()
+	defer s.storeLock.Unlock()
 	g, ok := s.groups[groupID]
 	if !ok {
 		return ErrGroupNotFound

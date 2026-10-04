@@ -39,78 +39,78 @@ type Model struct {
 }
 
 type Registry struct {
-	mu         sync.Mutex
-	ttl        time.Duration
-	now        func() time.Time
-	nodes      map[string]Node
-	roundRobin int
+	nodesLock   sync.Mutex
+	nodeTTL     time.Duration
+	clock       func() time.Time
+	nodes       map[string]Node
+	lookupCount int
 }
 
-// New returns an empty registry where nodes expire ttl after their last heartbeat.
-func New(ttl time.Duration) *Registry {
-	return &Registry{ttl: ttl, now: time.Now, nodes: map[string]Node{}}
+// New returns an empty registry where nodes expire nodeTTL after their last heartbeat.
+func New(nodeTTL time.Duration) *Registry {
+	return &Registry{nodeTTL: nodeTTL, clock: time.Now, nodes: map[string]Node{}}
 }
 
-// Upsert stores n with a fresh LastSeen and reports whether the node is new.
-func (r *Registry) Upsert(n Node) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	_, known := r.nodes[n.NodeID]
-	n.LastSeen = r.now()
-	r.nodes[n.NodeID] = n
+// Upsert stores node with a fresh LastSeen and reports whether the node is new.
+func (reg *Registry) Upsert(node Node) bool {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	_, known := reg.nodes[node.NodeID]
+	node.LastSeen = reg.clock()
+	reg.nodes[node.NodeID] = node
 	return !known
 }
 
 // Lookup picks an accessible node that serves model, rotating between matches.
-func (r *Registry) Lookup(model, callerID string, callerGroups map[string]bool) (Node, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (reg *Registry) Lookup(model, callerID string, callerGroups map[string]bool) (Node, bool) {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
 	var matches []Node
-	for _, n := range r.accessibleLocked(callerID, callerGroups) {
-		if slices.Contains(n.healthyModels(), model) {
-			matches = append(matches, n)
+	for _, node := range reg.accessibleLocked(callerID, callerGroups) {
+		if slices.Contains(node.healthyModels(), model) {
+			matches = append(matches, node)
 		}
 	}
 	if len(matches) == 0 {
 		return Node{}, false
 	}
-	r.roundRobin++
-	return matches[r.roundRobin%len(matches)], true
+	reg.lookupCount++
+	return matches[reg.lookupCount%len(matches)], true
 }
 
 // Models lists the models the caller can use, sorted by ID.
-func (r *Registry) Models(callerID string, callerGroups map[string]bool) []Model {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var out []Model
+func (reg *Registry) Models(callerID string, callerGroups map[string]bool) []Model {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	var result []Model
 	seen := map[string]bool{}
-	for _, n := range r.accessibleLocked(callerID, callerGroups) {
-		for _, m := range n.healthyModels() {
-			if !seen[m] {
-				seen[m] = true
-				out = append(out, Model{ID: m, NodeID: n.NodeID})
+	for _, node := range reg.accessibleLocked(callerID, callerGroups) {
+		for _, modelID := range node.healthyModels() {
+			if !seen[modelID] {
+				seen[modelID] = true
+				result = append(result, Model{ID: modelID, NodeID: node.NodeID})
 			}
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result
 }
 
 // Nodes lists the live nodes the caller can access, sorted by ID.
-func (r *Registry) Nodes(callerID string, callerGroups map[string]bool) []Node {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.accessibleLocked(callerID, callerGroups)
+func (reg *Registry) Nodes(callerID string, callerGroups map[string]bool) []Node {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	return reg.accessibleLocked(callerID, callerGroups)
 }
 
 // Sweep deletes expired nodes and returns their IDs.
-func (r *Registry) Sweep() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (reg *Registry) Sweep() []string {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
 	var removed []string
-	for id, n := range r.nodes {
-		if r.expired(n) {
-			delete(r.nodes, id)
+	for id, node := range reg.nodes {
+		if reg.expired(node) {
+			delete(reg.nodes, id)
 			removed = append(removed, id)
 		}
 	}
@@ -118,46 +118,46 @@ func (r *Registry) Sweep() []string {
 }
 
 // Len returns the number of stored nodes, including expired ones.
-func (r *Registry) Len() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return len(r.nodes)
+func (reg *Registry) Len() int {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	return len(reg.nodes)
 }
 
-// accessibleLocked returns live nodes the caller can access, sorted by ID; caller holds mu.
-func (r *Registry) accessibleLocked(callerID string, callerGroups map[string]bool) []Node {
-	out := make([]Node, 0, len(r.nodes))
-	for _, n := range r.nodes {
-		if !r.expired(n) && canAccess(n, callerID, callerGroups) {
-			out = append(out, n)
+// accessibleLocked returns live nodes the caller can access, sorted by ID; caller holds nodesLock.
+func (reg *Registry) accessibleLocked(callerID string, callerGroups map[string]bool) []Node {
+	result := make([]Node, 0, len(reg.nodes))
+	for _, node := range reg.nodes {
+		if !reg.expired(node) && canAccess(node, callerID, callerGroups) {
+			result = append(result, node)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].NodeID < out[j].NodeID })
-	return out
+	sort.Slice(result, func(i, j int) bool { return result[i].NodeID < result[j].NodeID })
+	return result
 }
 
-// expired reports whether n missed heartbeats for longer than ttl.
-func (r *Registry) expired(n Node) bool { return r.now().Sub(n.LastSeen) > r.ttl }
+// expired reports whether node missed heartbeats for longer than nodeTTL.
+func (reg *Registry) expired(node Node) bool { return reg.clock().Sub(node.LastSeen) > reg.nodeTTL }
 
-// canAccess reports whether the caller owns n or shares one of its groups.
-func canAccess(n Node, callerID string, callerGroups map[string]bool) bool {
-	if n.OwnerID != "" && n.OwnerID == callerID {
+// canAccess reports whether the caller owns node or shares one of its groups.
+func canAccess(node Node, callerID string, callerGroups map[string]bool) bool {
+	if node.OwnerID != "" && node.OwnerID == callerID {
 		return true
 	}
-	for _, g := range n.GroupIDs {
-		if callerGroups[g] {
+	for _, groupID := range node.GroupIDs {
+		if callerGroups[groupID] {
 			return true
 		}
 	}
 	return false
 }
 
-// healthyModels returns the models of the healthy services of n.
-func (n Node) healthyModels() []string {
+// healthyModels returns the models of the healthy services of node.
+func (node Node) healthyModels() []string {
 	var models []string
-	for _, s := range n.Services {
-		if s.Healthy {
-			models = append(models, s.Models...)
+	for _, service := range node.Services {
+		if service.Healthy {
+			models = append(models, service.Models...)
 		}
 	}
 	return models
