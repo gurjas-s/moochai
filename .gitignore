@@ -38,3 +38,7 @@ peerai-serv
 
 # Local build output
 bin/
+
+# Local client build output
+Client/peerai-node
+Client/peerai-node-dev
