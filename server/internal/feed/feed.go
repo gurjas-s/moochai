@@ -119,18 +119,18 @@ func (f *Feed) Route(from, model string, available []string, to string) int {
 	return id
 }
 
-// Request prints the forwarded request and a preview of the prompt.
-func (f *Feed) Request(id int, path, preview string) {
-	f.event(blue, "REQ", "%s %s %s", f.id(id), path, f.quote(preview))
+// Request prints the forwarded request, its direction, and a preview of the prompt.
+func (f *Feed) Request(id int, from, to, path, preview string) {
+	f.event(blue, "REQ", "%s %s %s %s", f.id(id), f.paint(dim, from+" → "+to), path, f.quote(preview))
 }
 
-// Response prints the status, the duration, and a preview of the answer.
-func (f *Feed) Response(id, status int, d time.Duration, preview string) {
+// Response prints the direction, the status, the duration, and a preview of the answer.
+func (f *Feed) Response(id int, from, to string, status int, d time.Duration, preview string) {
 	code := green
 	if status >= 400 {
 		code = red
 	}
-	f.event(code, "RESP", "%s %s %s %s", f.id(id), f.paint(bold+code, fmt.Sprint(status)),
+	f.event(code, "RESP", "%s %s %s %s %s", f.id(id), f.paint(dim, from+" → "+to), f.paint(bold+code, fmt.Sprint(status)),
 		f.paint(dim, "in "+d.Round(time.Millisecond).String()), f.quote(preview))
 }
 

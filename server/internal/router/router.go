@@ -112,12 +112,15 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
 	for _, n := range h.reg.Serving(req.Model) {
 		available = append(available, feed.Name(n))
 	}
-	id := h.feed.Route(h.requester(r), req.Model, available, feed.Name(node))
-	h.feed.Request(id, r.Method+" "+r.URL.Path, feed.Preview(body))
+	from, to := h.requester(r), feed.Name(node)
+	id := h.feed.Route(from, req.Model, available, to)
+	h.feed.Request(id, from, to, r.Method+" "+r.URL.Path, feed.Preview(body))
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	w = rec
-	defer func() { h.feed.Response(id, rec.status, time.Since(start), feed.ResponsePreview(rec.body.Bytes())) }()
+	defer func() {
+		h.feed.Response(id, to, from, rec.status, time.Since(start), feed.ResponsePreview(rec.body.Bytes()))
+	}()
 
 	r.URL = &url.URL{Scheme: "http", Host: node.ListenAddr, Path: r.URL.Path, RawQuery: r.URL.RawQuery}
 	r.Host = node.ListenAddr
