@@ -54,3 +54,17 @@ func TestUpsert(t *testing.T) {
 		t.Fatalf("nodes = %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestUpsertCallsHeartbeat(t *testing.T) {
+	reg := registry.New(time.Minute)
+	h := New(reg, nil)
+	var beats []string
+	h.Heartbeat = func(n registry.Node) { beats = append(beats, n.NodeID) }
+	mux := http.NewServeMux()
+	h.Register(mux)
+	doReq(mux, "POST", "/api/nodes/register", `{"node_id":"n1","tailscale_ip":"100.64.0.5","listen_addr":"100.64.0.5:9100"}`, "100.64.0.5:5000")
+	doReq(mux, "POST", "/api/nodes/heartbeat", `{"node_id":"n1","tailscale_ip":"100.64.0.9","listen_addr":"100.64.0.5:9100"}`, "100.64.0.5:5000")
+	if len(beats) != 1 || beats[0] != "n1" {
+		t.Fatalf("heartbeats = %v, want only the accepted one", beats)
+	}
+}

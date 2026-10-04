@@ -99,6 +99,23 @@ curl http://<central-tailscale-ip>:8080/v1/chat/completions \
 `GET /v1/models` lists all models of the live nodes.
 Central also has an Ollama-compatible API (`/api/tags`, `/api/show`, `/api/chat`) for tools such as Zed.
 
+## Analytics
+
+Central can keep a usage history in TimescaleDB, the open-source database of Tiger Data:
+
+```sh
+cd server
+make run-db    # start TimescaleDB on 127.0.0.1, then start central with analytics
+```
+
+Open `http://<central-tailscale-ip>:8080/analytics` to see these values:
+
+- The participants that give the most work, and the participants that use the most work.
+- The balance of each participant: work served minus work used.
+- The work that each node served over time, and the use of each model.
+
+With the database, central sends each request to the node with the least work in the last hour.
+
 ## The central dashboard
 
 Central shows a terminal dashboard when it runs in a terminal:
@@ -199,3 +216,9 @@ Central has no authentication.
 All computers that can connect to central can use all live nodes and models.
 Central relies on your tailnet to control access.
 Do not expose central on a public address.
+
+The analytics database is optional.
+The database listens on `127.0.0.1` of the central computer only.
+Central keeps metadata only, such as time, node, model, status, and duration.
+Central does not keep prompt text or response text.
+Read [`server/README.md`](server/README.md#analytics) for more information.

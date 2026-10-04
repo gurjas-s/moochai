@@ -9,8 +9,11 @@ DISTDIR := dist
 ADDR ?= :8080
 LOCAL_ADDR ?= 127.0.0.1:8080
 FLAGS ?=
+# The analytics database. It listens only on loopback, so only central can connect. Change DB_PASSWORD on a shared machine.
+DB_PASSWORD ?= mooch
+DB_URL ?= postgres://postgres:$(DB_PASSWORD)@127.0.0.1:5432/postgres
 
-.PHONY: help build nodes all run run-local run-plain test vet fmt fmt-check check clean
+.PHONY: help build nodes all run run-local run-plain run-db db-up db-down test test-db vet fmt fmt-check check clean
 
 help: # Show the targets.
 	@grep -E '^[a-z-]+:.*# .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*# "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -31,6 +34,20 @@ run-local: build # Start central on loopback for local tests. Other machines can
 
 run-plain: all # Start central with the event lines and without the dashboard.
 	./$(BINDIR)/$(BINARY) -addr $(ADDR) -bin $(DISTDIR) -plain $(FLAGS)
+
+run-db: all db-up # Start central on the Tailscale IPv4 with analytics in the local database.
+	MOOCH_DB_URL=$(DB_URL) ./$(BINDIR)/$(BINARY) -addr $(ADDR) -bin $(DISTDIR) $(FLAGS)
+
+db-up: # Start TimescaleDB in Docker on 127.0.0.1:5432. The data stays in the mooch-db volume.
+	@docker start mooch-db >/dev/null 2>&1 || docker run -d --name mooch-db -p 127.0.0.1:5432:5432 \
+		-e POSTGRES_PASSWORD=$(DB_PASSWORD) -v mooch-db:/var/lib/postgresql/data timescale/timescaledb:latest-pg17
+	@until docker exec mooch-db pg_isready -q -U postgres; do sleep 1; done
+
+db-down: # Stop the database. The data stays in the mooch-db volume.
+	docker stop mooch-db
+
+test-db: db-up # Run the database tests against the local database.
+	MOOCH_TEST_DB_URL=$(DB_URL) go test ./internal/stats -run DB -count=1 -v
 
 test: # Run the test suite.
 	go test ./... -count=1

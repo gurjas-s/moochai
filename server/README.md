@@ -1,6 +1,6 @@
 # Mooch.ai Central
 
-Central tracks the live nodes on the tailnet and forwards OpenAI requests to a node that serves the requested model. All data is in memory.
+Central tracks the live nodes on the tailnet and forwards OpenAI requests to a node that serves the requested model. The node list is in memory. Usage history is in an optional TimescaleDB database (see [Analytics](#analytics)).
 
 ## How a request flows
 
@@ -62,6 +62,7 @@ live nodes and models. Central relies on the tailnet to limit who can connect.
 | `internal/feed` | Event lines: join, leave, route, request, response |
 | `internal/tui` | Terminal dashboard: logo, NODES and MODELS boxes, event console |
 | `internal/respond` | JSON responses and the OpenAI error envelope |
+| `internal/stats` | Usage history in TimescaleDB, analytics routes, `/analytics` page, load for fair routing |
 
 ## Run
 
@@ -99,6 +100,52 @@ go run ./cmd/mooch-central -addr 127.0.0.1:8080   # local use only
 
 Run `make check` before a push.
 
+## Analytics
+
+Central can keep a history of requests and heartbeats in TimescaleDB, the open-source database of Tiger Data.
+Without a database, central works as before. The analytics routes then return 503.
+
+```sh
+make db-up        # start TimescaleDB in Docker on 127.0.0.1:5432
+make run-db       # start central with MOOCH_DB_URL set to the local database
+make test-db      # run the database tests in a temporary database
+make db-down      # stop the database; the data stays in the mooch-db volume
+```
+
+To use another database, set `MOOCH_DB_URL` before you start central.
+For Tiger Cloud, add `sslmode=require` to the URL.
+
+### What central keeps
+
+| Table | Rows |
+|-------|------|
+| `requests` | One row for each routed request: time, requester, node, model, path, status, duration, bytes, token counts |
+| `heartbeats` | One row for each register or heartbeat: time, node, model count |
+| `usage_hourly` | Continuous aggregate: requests, OK count, work, and tokens per hour, requester, node, and model |
+
+- Central compresses `requests` chunks after 7 days and deletes them after 90 days.
+- Central deletes `heartbeats` after 30 days.
+- **Work** is the time that a node spends on a request.
+- The **balance** of a participant is work served minus work used.
+- A participant is a node, or a tool at an IP that is not a node.
+
+### Fair routing
+
+When more than one live node serves a model, central sends the request to the node with the least work in the last hour.
+Two nodes with equal work share requests in rotation.
+Central reads the work from the database every 15 seconds.
+Central also adds the work of each request when the request ends.
+Without a database, central uses rotation only.
+
+### Security
+
+- The database port listens on `127.0.0.1` only. Nodes and the tailnet cannot connect to the database.
+- Only central has `MOOCH_DB_URL`. Central reads it from the environment, not from a flag, so `ps` does not show it.
+- The node does not change. The node payload does not change.
+- Central does not keep prompt text or response text. The `requests` table has metadata only.
+- The analytics routes use the tailnet listener of central, so only tailnet members can see them.
+- When the database stops, central continues to route requests. Central drops the rows and logs one warning.
+
 ## Endpoints
 
 | Method | Path | Use |
@@ -121,6 +168,11 @@ Run `make check` before a push.
 | GET | `/join/mooch-node.yaml` | Default node config |
 | GET | `/join/bin/{os}-{arch}` | Node binary |
 | GET | `/app` | Test UI for nodes and models |
+| GET | `/analytics` | Analytics page: givers, takers, balance, work over time, models |
+| GET | `/api/analytics/summary?window=` | Give and take of each participant. `window` is `1h`, `24h`, `7d`, or `30d`. |
+| GET | `/api/analytics/timeseries?window=` | Work that each node served, per time bucket |
+| GET | `/api/analytics/models?window=` | Use of each model |
+| GET | `/leaderboard.json` | Last 24 hours in the format of `frontend/public/leaderboard.example.json` |
 
 Zed can use the Ollama-compatible surface with automatic model discovery:
 

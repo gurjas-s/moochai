@@ -13,8 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"mooch-serv/internal/feed"
 	"mooch-serv/internal/registry"
 	"mooch-serv/internal/respond"
+	"mooch-serv/internal/router"
+	"mooch-serv/internal/stats"
 )
 
 const maxBody = 32 << 20
@@ -22,6 +25,8 @@ const maxBody = 32 << 20
 type Handler struct {
 	reg    *registry.Registry
 	client *http.Client
+	// Record gets one row for each chat request that goes to a node. Nil records nothing.
+	Record func(stats.Request)
 }
 
 func New(reg *registry.Registry) *Handler {
@@ -112,6 +117,14 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 		ollamaError(w, http.StatusNotFound, fmt.Sprintf("model %q not found", req.Model))
 		return
 	}
+	if h.Record != nil {
+		start, status := time.Now(), http.StatusOK
+		defer func() {
+			h.Record(stats.Request{Time: start, Requester: router.Requester(h.reg, r), Node: feed.Name(node),
+				Model: req.Model, Path: r.URL.Path, Status: status, Duration: time.Since(start)})
+		}()
+		w = statusWriter{w, &status}
+	}
 	body, err := json.Marshal(openAIRequest(req))
 	if err != nil {
 		ollamaError(w, http.StatusBadRequest, err.Error())
@@ -167,7 +180,7 @@ func openAIRequest(req chatRequest) map[string]any {
 
 func (h *Handler) stream(w http.ResponseWriter, body io.Reader, model string) {
 	w.Header().Set("Content-Type", "application/x-ndjson")
-	flush, _ := w.(http.Flusher)
+	rc := http.NewResponseController(w) // Flush finds the http.Flusher through Unwrap
 	scanner := bufio.NewScanner(body)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -195,9 +208,7 @@ func (h *Handler) stream(w http.ResponseWriter, body io.Reader, model string) {
 			message["tool_calls"] = choice.Delta.ToolCalls
 		}
 		writeLine(w, map[string]any{"model": model, "created_at": time.Now().UTC(), "message": message, "done": false})
-		if flush != nil {
-			flush.Flush()
-		}
+		_ = rc.Flush()
 	}
 	writeLine(w, map[string]any{
 		"model":       model,
@@ -206,9 +217,7 @@ func (h *Handler) stream(w http.ResponseWriter, body io.Reader, model string) {
 		"done_reason": "stop",
 		"done":        true,
 	})
-	if flush != nil {
-		flush.Flush()
-	}
+	_ = rc.Flush()
 }
 
 func (h *Handler) complete(w http.ResponseWriter, body io.Reader, model string) {
@@ -226,6 +235,19 @@ func (h *Handler) complete(w http.ResponseWriter, body io.Reader, model string) 
 		"message": result.Choices[0].Message, "done": true,
 	})
 }
+
+// statusWriter keeps the status of the response for Record. Unwrap lets the stream flush.
+type statusWriter struct {
+	http.ResponseWriter
+	status *int
+}
+
+func (s statusWriter) WriteHeader(code int) {
+	*s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 func (h *Handler) model(id string) (registry.Model, bool) {
 	for _, model := range h.reg.Models() {

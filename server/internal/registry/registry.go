@@ -43,6 +43,7 @@ type Registry struct {
 	clock       func() time.Time
 	nodes       map[string]Node
 	lookupCount int
+	load        func(Node) float64
 }
 
 // New returns an empty registry where nodes expire nodeTTL after their last heartbeat.
@@ -60,13 +61,24 @@ func (reg *Registry) Upsert(node Node) bool {
 	return !known
 }
 
-// Lookup picks a live node that serves model, rotating between matches.
+// SetLoad makes Lookup prefer the match with the lowest load. load must be fast, because Lookup calls it under the lock.
+func (reg *Registry) SetLoad(load func(Node) float64) {
+	reg.nodesLock.Lock()
+	defer reg.nodesLock.Unlock()
+	reg.load = load
+}
+
+// Lookup picks a live node that serves model. With SetLoad, it keeps only the matches with the lowest load.
+// It rotates between the remaining matches.
 func (reg *Registry) Lookup(model string) (Node, bool) {
 	reg.nodesLock.Lock()
 	defer reg.nodesLock.Unlock()
 	matches := reg.servingLocked(model)
 	if len(matches) == 0 {
 		return Node{}, false
+	}
+	if reg.load != nil && len(matches) > 1 {
+		matches = reg.leastLoaded(matches)
 	}
 	reg.lookupCount++
 	return matches[reg.lookupCount%len(matches)], true
@@ -151,6 +163,21 @@ func (reg *Registry) servingLocked(model string) []Node {
 		}
 	}
 	return matches
+}
+
+// leastLoaded returns the matches that have the lowest load.
+func (reg *Registry) leastLoaded(matches []Node) []Node {
+	var best []Node
+	low := 0.0
+	for _, node := range matches {
+		switch load := reg.load(node); {
+		case best == nil || load < low:
+			best, low = []Node{node}, load
+		case load == low:
+			best = append(best, node)
+		}
+	}
+	return best
 }
 
 // expired reports whether node missed heartbeats for longer than nodeTTL.
