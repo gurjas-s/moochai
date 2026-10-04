@@ -115,13 +115,13 @@ Central shows a terminal dashboard when it runs in a terminal:
 ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
 │ CONSOLE                                                                                      │
 │           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:09  │ ROUTE [ laptop → gpu-box ] MODEL qwen2.5:7b · served by: gpu-box · #1          │ │
+│ 12:00:09  │ ROUTE [ laptop → gpu-box ] MODEL qwen2.5:7b                                 #1 │ │
 │           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 │           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:09  │ REQ   [ laptop → gpu-box ] "Hello" · #1                                        │ │
+│ 12:00:09  │ REQ   [ laptop → gpu-box ] "Hello"                                          #1 │ │
 │           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 │           ╭────────────────────────────────────────────────────────────────────────────────╮ │
-│ 12:00:10  │ RESP  [ gpu-box → laptop ] "Hello! How can I help you?" in 812ms · #1          │ │
+│ 12:00:10  │ RESP  [ gpu-box → laptop ] "Hello! How can I help you?" in 812ms            #1 │ │
 │           ╰────────────────────────────────────────────────────────────────────────────────╯ │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
@@ -131,7 +131,7 @@ Central shows a terminal dashboard when it runs in a terminal:
 - **CONSOLE** shows each request in three frames: ROUTE (yellow), REQ (blue), and RESP (green, or red for an error).
   Each line shows the direction, for example `[ laptop → gpu-box ]`.
   ROUTE shows the model. REQ shows the prompt. RESP shows the answer and the duration.
-  The number at the end of a line (`#1`) connects the frames of one request.
+  The number at the right end of a frame (`#1`) connects the frames of one request.
   When a line is too long, the dashboard cuts the prompt or the answer first.
   Use `-details` to also show the method, the path, and the status. RESP always shows an error status.
 

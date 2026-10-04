@@ -108,12 +108,8 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.log.Info("forward", "method", r.Method, "path", r.URL.Path, "model", req.Model, "node_id", node.NodeID)
-	var available []string
-	for _, n := range h.reg.Serving(req.Model) {
-		available = append(available, feed.Name(n))
-	}
 	from, to := h.requester(r), feed.Name(node)
-	id := h.feed.Route(from, req.Model, available, to)
+	id := h.feed.Route(from, req.Model, to)
 	h.feed.Request(id, from, to, r.Method, r.URL.Path, feed.Preview(body))
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}

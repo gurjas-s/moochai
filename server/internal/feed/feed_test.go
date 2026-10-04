@@ -16,7 +16,7 @@ func TestFeedLines(t *testing.T) {
 	f.Joined(registry.Node{NodeID: "n1", Name: "gpu-box", TailscaleIP: "100.64.0.7",
 		Services: []registry.Service{{Models: []string{"a", "b"}}}})
 	f.Left(registry.Node{NodeID: "n2"})
-	id := f.Route("laptop", "a", []string{"gpu-box"}, "gpu-box")
+	id := f.Route("laptop", "a", "gpu-box")
 	f.Request(id, "laptop", "gpu-box", "POST", "/v1/chat/completions", "hi")
 	f.Response(id, "gpu-box", "laptop", 200, 1234*time.Millisecond, "")
 	want := `          ╭────────────────────────────────────────────────────────────
@@ -26,13 +26,13 @@ func TestFeedLines(t *testing.T) {
 09:05:00  │ LEAVE n2 no heartbeat
           ╰────────────────────────────────────────────────────────────
           ╭────────────────────────────────────────────────────────────
-09:05:00  │ ROUTE [ laptop → gpu-box ] MODEL a · served by: gpu-box · #1
+09:05:00  │ ROUTE [ laptop → gpu-box ] MODEL a #1
           ╰────────────────────────────────────────────────────────────
           ╭────────────────────────────────────────────────────────────
-09:05:00  │ REQ   [ laptop → gpu-box ] "hi" · #1
+09:05:00  │ REQ   [ laptop → gpu-box ] "hi" #1
           ╰────────────────────────────────────────────────────────────
           ╭────────────────────────────────────────────────────────────
-09:05:00  │ RESP  [ gpu-box → laptop ] (no text) in 1.234s · #1
+09:05:00  │ RESP  [ gpu-box → laptop ] (no text) in 1.234s #1
           ╰────────────────────────────────────────────────────────────
 `
 	if out.String() != want {
@@ -45,7 +45,7 @@ func TestFeedLines(t *testing.T) {
 	f.Response(1, "b", "a", 200, 0, "")
 	f.Details = false
 	f.Response(1, "b", "a", 502, 0, "")
-	for _, want := range []string{`[ a → b ] POST "hi" /v1/chat/completions · #1`, "[ b → a ] 200 (no text)", "[ b → a ] 502 (no text)"} {
+	for _, want := range []string{`[ a → b ] POST "hi" /v1/chat/completions #1`, "[ b → a ] 200 (no text)", "[ b → a ] 502 (no text)"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("feed misses %q:\n%s", want, out.String())
 		}
@@ -62,7 +62,7 @@ func TestFeedLines(t *testing.T) {
 
 	var nilFeed *Feed
 	nilFeed.Joined(registry.Node{}) // A nil feed must not panic.
-	nilFeed.Response(nilFeed.Route("", "", nil, ""), "", "", 0, 0, "")
+	nilFeed.Response(nilFeed.Route("", "", ""), "", "", 0, 0, "")
 }
 
 func TestResponsePreview(t *testing.T) {

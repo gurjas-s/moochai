@@ -309,7 +309,7 @@ func wrap(line string, width int) []string {
 }
 
 // frame redraws a line of a message frame at width. The borders fill the width and close on the right.
-// A long text line keeps its important parts and cuts only the text between the feed.Cut marks.
+// A long text line keeps its important parts and cuts only the text part. The request number goes to the right end.
 // frame reports false when line is not part of a frame.
 func frame(line string, width int) (string, bool) {
 	plain := []rune(ansi.Strip(line))
@@ -325,19 +325,25 @@ func frame(line string, width int) (string, bool) {
 	case '╰':
 		return pad + colour + "╰" + strings.Repeat("─", width-12) + "╯\033[0m", true
 	}
-	keep, text, tail := line, "", ""
-	if parts := strings.Split(line, feed.Cut); len(parts) == 3 {
-		keep, text, tail = parts[0], parts[1], parts[2]
+	keep, text, tail, number := line, "", "", ""
+	if parts := strings.Split(line, feed.Cut); len(parts) == 4 {
+		keep, text, tail, number = parts[0], parts[1], parts[2], parts[3]
 	}
-	room := width - 2 - ansi.StringWidth(keep) - ansi.StringWidth(tail) - 2 // 2 for " │", 2 for the spaces around text
+	end := " " + colour + "│\033[0m"
+	limit := width - 2 // the content stops before " │"
+	if number != "" {
+		end = " " + number + end
+		limit = width - ansi.StringWidth(end)
+	}
+	room := limit - ansi.StringWidth(keep) - ansi.StringWidth(tail) - 2 // 2 for the spaces around text
 	content := keep
 	for _, part := range []string{ansi.Truncate(text, max(0, room), "…"), tail} {
 		if ansi.StringWidth(part) > 0 {
 			content += " " + part
 		}
 	}
-	content = ansi.Truncate(content, width-2, "…")
-	return content + strings.Repeat(" ", width-1-ansi.StringWidth(content)) + colour + "│\033[0m", true
+	content = ansi.Truncate(content, limit, "…")
+	return content + strings.Repeat(" ", width-ansi.StringWidth(content)-ansi.StringWidth(end)) + end, true
 }
 
 func (m *model) footer() string {
