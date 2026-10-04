@@ -84,8 +84,13 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -eu
-          gh release create "$TAG" release/* \
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              --title "$TAG"
+          fi
+          gh release upload "$TAG" release/* \
             --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --generate-notes \
-            --title "$TAG"
+            --clobber
