@@ -1,7 +1,9 @@
 # Mooch.ai central build targets.
 # start builds central, starts TimescaleDB, and then starts central with analytics.
+# Docker is necessary only for analytics.
 # Set ADDR to change the listen address, for example: make start ADDR=127.0.0.1:8080
 # Set FLAGS for more central flags, for example: make start FLAGS=-plain
+# Set ANALYTICS=0 to start central without the database and without Docker, for example: make start ANALYTICS=0
 
 BINARY := mooch-central
 BINDIR := bin
@@ -11,6 +13,12 @@ FLAGS ?=
 # The analytics database. It listens only on loopback, so only central can connect. Change DB_PASSWORD on a shared machine.
 DB_PASSWORD ?= mooch
 DB_URL ?= postgres://postgres:$(DB_PASSWORD)@127.0.0.1:5432/postgres
+ANALYTICS ?= 1
+# With ANALYTICS=0, start sets MOOCH_DB_URL to empty. Central then ignores the value in .env.
+ifeq ($(ANALYTICS),1)
+START_DEPS := db-up
+START_DB_URL := $(DB_URL)
+endif
 
 .PHONY: help build start db-up db-down test-db fmt check clean
 
@@ -21,9 +29,9 @@ build: # Build central and the node binaries that /join serves.
 	go build -o $(BINDIR)/$(BINARY) ./cmd/mooch-central
 	./build-nodes.sh
 
-start: db-up # Build central, and then start it on the Tailscale IPv4 and 127.0.0.1, with analytics on 127.0.0.1:3000.
+start: $(START_DEPS) # Build central, and then start it on the Tailscale IPv4 and 127.0.0.1, with analytics on 127.0.0.1:3000.
 	go build -o $(BINDIR)/$(BINARY) ./cmd/mooch-central
-	MOOCH_DB_URL=$(DB_URL) ./$(BINDIR)/$(BINARY) -addr $(ADDR) -bin $(DISTDIR) $(FLAGS)
+	MOOCH_DB_URL=$(START_DB_URL) ./$(BINDIR)/$(BINARY) -addr $(ADDR) -bin $(DISTDIR) $(FLAGS)
 
 db-up: # Start TimescaleDB in Docker on 127.0.0.1:5432. The data stays in the mooch-db volume.
 	@docker start mooch-db >/dev/null 2>&1 || docker run -d --name mooch-db -p 127.0.0.1:5432:5432 \
