@@ -15,6 +15,13 @@ import (
 
 const DefaultHeartbeatInterval = 15 * time.Second
 
+// Defaults for network fields that the config file can leave out.
+const (
+	DefaultCentralPort = 8080
+	DefaultListenHost  = "0.0.0.0"
+	DefaultListenPort  = 9100
+)
+
 type Config struct {
 	Network  Network   `yaml:"network"`
 	Node     Node      `yaml:"node"`
@@ -227,12 +234,16 @@ func (b Backend) Validate() error {
 
 // Load discovers or loads a configuration file. An explicit path is required
 // when path is not empty; otherwise default paths are checked in order.
+// Load fills missing network ports and the listen host with defaults.
 func Load(path string) (Config, string, error) {
 	resolved, err := ResolvePath(path)
 	if err != nil {
 		return Config{}, "", err
 	}
 	data, err := os.ReadFile(resolved)
+	if errors.Is(err, os.ErrNotExist) {
+		return Config{}, "", fmt.Errorf("config file %q does not exist. Check the --config path", resolved)
+	}
 	if err != nil {
 		return Config{}, "", fmt.Errorf("read config %q: %w", resolved, err)
 	}
@@ -240,10 +251,41 @@ func Load(path string) (Config, string, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return Config{}, "", fmt.Errorf("parse config %q: %w", resolved, err)
 	}
+	cfg.applyDefaults()
 	if err := cfg.Validate(); err != nil {
-		return Config{}, "", fmt.Errorf("validate config %q: %w", resolved, err)
+		return Config{}, "", fmt.Errorf("config %q is not valid:\n  %s", resolved, strings.ReplaceAll(err.Error(), "\n", "\n  "))
 	}
 	return cfg, resolved, nil
+}
+
+func (c *Config) applyDefaults() {
+	if c.Network.CentralPort == 0 {
+		c.Network.CentralPort = DefaultCentralPort
+	}
+	if strings.TrimSpace(c.Network.ListenHost) == "" {
+		c.Network.ListenHost = DefaultListenHost
+	}
+	if c.Network.ListenPort == 0 {
+		c.Network.ListenPort = DefaultListenPort
+	}
+	if c.Network.HeartbeatInterval == 0 {
+		c.Network.HeartbeatInterval = DefaultHeartbeatInterval
+	}
+}
+
+// DefaultPaths returns the config paths that the node checks when --config is not given.
+func DefaultPaths() ([]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("get home directory: %w", err)
+	}
+	paths := []string{filepath.Join(home, ".config", "mooch", "node.yaml")}
+	// macOS keeps the user config directory in ~/Library/Application Support.
+	if dir, err := os.UserConfigDir(); err == nil && dir != filepath.Join(home, ".config") {
+		paths = append(paths, filepath.Join(dir, "mooch", "node.yaml"))
+	}
+	// The join script installs the config here.
+	return append(paths, filepath.Join(home, ".mooch", "mooch-node.yaml"), "mooch-node.yaml"), nil
 }
 
 // ResolvePath returns an explicit path or the first existing default path.
@@ -251,13 +293,9 @@ func ResolvePath(path string) (string, error) {
 	if strings.TrimSpace(path) != "" {
 		return path, nil
 	}
-	configDir, err := os.UserConfigDir()
+	candidates, err := DefaultPaths()
 	if err != nil {
-		return "", fmt.Errorf("get user config directory: %w", err)
-	}
-	candidates := []string{
-		filepath.Join(configDir, "mooch", "node.yaml"),
-		"mooch-node.yaml",
+		return "", err
 	}
 	for _, candidate := range candidates {
 		if _, err := os.Stat(candidate); err == nil {
@@ -266,42 +304,49 @@ func ResolvePath(path string) (string, error) {
 			return "", fmt.Errorf("check config %q: %w", candidate, err)
 		}
 	}
-	return "", fmt.Errorf("config file not found; checked %q and %q", candidates[0], candidates[1])
+	return "", fmt.Errorf(`no config file found. The node checked these paths:
+  %s
+Do one of these steps:
+  - Run the join command that central shows: curl -fsSL http://<central>:8080/join.sh | sh
+  - Copy mooch-node.yaml.example to mooch-node.yaml and set network.central_host.
+  - Give the path of a config file: mooch-node --config <path>`, strings.Join(candidates, "\n  "))
 }
 
+// Validate returns all problems of the config, one for each line.
 func (c Config) Validate() error {
+	var errs []error
 	if strings.TrimSpace(c.Network.CentralHost) == "" {
-		return errors.New("network.central_host is required")
+		errs = append(errs, errors.New("network.central_host is missing. Set it to the Tailscale IPv4 of central, for example 100.64.0.10"))
 	}
 	if c.Network.CentralPort < 1 || c.Network.CentralPort > 65535 {
-		return errors.New("network.central_port must be between 1 and 65535")
+		errs = append(errs, errors.New("network.central_port must be between 1 and 65535"))
 	}
 	if strings.TrimSpace(c.Network.ListenHost) == "" {
-		return errors.New("network.listen_host is required")
+		errs = append(errs, errors.New("network.listen_host is missing"))
 	}
 	if c.Network.ListenPort < 1 || c.Network.ListenPort > 65535 {
-		return errors.New("network.listen_port must be between 1 and 65535")
+		errs = append(errs, errors.New("network.listen_port must be between 1 and 65535"))
 	}
 	if c.Network.HeartbeatInterval <= 0 {
-		return errors.New("network.heartbeat_interval must be positive")
+		errs = append(errs, errors.New("network.heartbeat_interval must be positive"))
 	}
 	seen := make(map[string]bool, len(c.Services))
 	for i, service := range c.Services {
 		if err := service.validate(i, seen); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 	seenBackends := make(map[string]bool, len(c.Backends))
 	for i, backend := range c.Backends {
 		if seenBackends[backend.Name] {
-			return fmt.Errorf("backends[%d].name %q is duplicated", i, backend.Name)
+			errs = append(errs, fmt.Errorf("backends[%d].name %q is duplicated", i, backend.Name))
 		}
 		if err := backend.Validate(); err != nil {
-			return fmt.Errorf("backends[%d]: %w", i, err)
+			errs = append(errs, fmt.Errorf("backends[%d]: %w", i, err))
 		}
 		seenBackends[backend.Name] = true
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 func (s Service) validate(index int, seen map[string]bool) error {

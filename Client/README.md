@@ -117,10 +117,26 @@ Start the client with an explicit configuration path:
 ./mooch-node --config ./mooch-node.yaml
 ```
 
-When `--config` is not provided, the client checks these paths:
+When `--config` is not provided, the client checks these paths in order:
 
 1. `~/.config/mooch/node.yaml`
-2. `./mooch-node.yaml`
+2. `~/Library/Application Support/mooch/node.yaml` (macOS only)
+3. `~/.mooch/mooch-node.yaml` (the join script installs the config here)
+4. `./mooch-node.yaml`
+
+Only `network.central_host` is required. The client uses these defaults for missing fields:
+
+| Field | Default |
+|-------|---------|
+| `network.central_port` | `8080` |
+| `network.listen_host` | `0.0.0.0` |
+| `network.listen_port` | `9100` |
+| `network.heartbeat_interval` | `15s` |
+| `node.name` | the hostname |
+| `node.id` | a generated ID, saved as `mooch/node.id` in the user config directory |
+
+If the config has problems, the client shows all problems and stops.
+If the config has no backends, the client starts and shows a warning, because it shares no models.
 
 ## Dashboard
 
@@ -216,7 +232,9 @@ The client stops the heartbeat loop and shuts down the HTTP server.
 
 ### Configuration file not found
 
-Pass the file path explicitly:
+The error lists each path that the client checked.
+Run the join command from central, or copy `mooch-node.yaml.example` to `mooch-node.yaml`.
+You can also give the file path:
 
 ```sh
 ./mooch-node --config /path/to/node.yaml

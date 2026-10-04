@@ -40,7 +40,8 @@ func main() {
 	logFormat := flag.String("log-format", logDefault("MOOCH_LOG_FORMAT", "text"), "log format: text or json")
 	flag.Parse()
 	if err := run(*configPath, *logMode, *logFormat); err != nil {
-		slog.Error("node stopped", "error", err)
+		// Print plain text, so that a multi-line config error stays readable.
+		fmt.Fprintf(os.Stderr, "mooch-node: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -222,6 +223,9 @@ func run(configPath, logMode, logFormat string) error {
 		if err := setupDashboardLogging(ui, logMode); err != nil {
 			return err
 		}
+	}
+	if len(cfg.Backends) == 0 && len(cfg.Services) == 0 {
+		slog.Warn("config has no backends, so the node shares no models. Add an entry to backends", "component", "main", "path", resolved)
 	}
 	slog.Info("node start",
 		"component", "main",

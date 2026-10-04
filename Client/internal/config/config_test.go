@@ -114,3 +114,54 @@ func TestServiceValidateRejectsInvalidFields(t *testing.T) {
 		t.Fatalf("Service.Validate() error = %v, want type error", err)
 	}
 }
+
+func TestLoadFillsDefaultsAndReportsAllProblems(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "node.yaml")
+	if err := os.WriteFile(path, []byte("network:\n  central_host: 100.64.0.10\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	n := cfg.Network
+	if n.CentralPort != DefaultCentralPort || n.ListenHost != DefaultListenHost || n.ListenPort != DefaultListenPort || n.HeartbeatInterval != DefaultHeartbeatInterval {
+		t.Fatalf("network = %+v, want defaults", n)
+	}
+
+	// An empty file misses central_host. A bad port and a bad backend also fail. Load reports all three.
+	if err := os.WriteFile(path, []byte("network:\n  listen_port: 70000\nbackends:\n  - name: x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = Load(path)
+	for _, want := range []string{"central_host is missing", "listen_port", "backends[0]"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Load() error = %v, want %q", err, want)
+		}
+	}
+
+	if _, _, err := Load(filepath.Join(dir, "nope.yaml")); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("Load(missing) error = %v, want does not exist", err)
+	}
+}
+
+func TestResolvePathFindsJoinConfigAndExplainsMissingFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Chdir(t.TempDir())
+	if _, err := ResolvePath(""); err == nil || !strings.Contains(err.Error(), "join.sh") || !strings.Contains(err.Error(), "--config") {
+		t.Fatalf("ResolvePath() error = %v, want the fix steps", err)
+	}
+	joinPath := filepath.Join(home, ".mooch", "mooch-node.yaml")
+	if err := os.MkdirAll(filepath.Dir(joinPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(joinPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ResolvePath(""); err != nil || got != joinPath {
+		t.Fatalf("ResolvePath() = %q, %v, want %q", got, err, joinPath)
+	}
+}

@@ -25,6 +25,7 @@ const (
 	blue    = "\033[34m"
 	magenta = "\033[35m"
 	cyan    = "\033[36m"
+	grey    = "\033[90m"
 )
 
 const previewLen = 120
@@ -121,7 +122,7 @@ func (f *Feed) Route(from, model string, available []string, to string) int {
 
 // Request prints the direction, the prompt, and the path of the forwarded request.
 func (f *Feed) Request(id int, from, to, path, preview string) {
-	f.event(blue, "REQ", "%s %s %s %s", f.id(id), f.chat(blue, from, to), f.text(preview), f.paint(dim, path))
+	f.event(blue, "REQ", "%s %s %s %s", f.id(id), f.chat(blue, from, to), f.text(preview), f.paint(grey, path))
 }
 
 // Response prints the direction, the answer, the status, and the duration.
@@ -130,8 +131,8 @@ func (f *Feed) Response(id int, from, to string, status int, d time.Duration, pr
 	if status >= 400 {
 		code = red
 	}
-	f.event(code, "RESP", "%s %s %s %s %s", f.id(id), f.chat(code, from, to), f.text(preview),
-		f.paint(bold+code, fmt.Sprint(status)), f.paint(dim, "in "+d.Round(time.Millisecond).String()))
+	f.event(code, "RESP", "%s %s %s %s", f.id(id), f.chat(code, from, to), f.text(preview),
+		f.paint(grey, fmt.Sprintf("%d in %s", status, d.Round(time.Millisecond))))
 }
 
 // chat returns the direction of a message, for example "[ laptop → gpu-box ]".
