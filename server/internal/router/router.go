@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"time"
 
-	"peerai-serv/internal/auth"
+	"peerai-serv/internal/feed"
 	"peerai-serv/internal/registry"
 	"peerai-serv/internal/respond"
 )
@@ -29,13 +29,14 @@ var forwardPaths = []string{
 
 type Handler struct {
 	reg   *registry.Registry
-	auth  *auth.Store
 	log   *slog.Logger
+	feed  *feed.Feed
 	proxy *httputil.ReverseProxy
 }
 
-func New(reg *registry.Registry, authStore *auth.Store) *Handler {
-	h := &Handler{reg: reg, auth: authStore, log: slog.With("component", "router")}
+// New returns a router. A nil feed prints no events.
+func New(reg *registry.Registry, f *feed.Feed) *Handler {
+	h := &Handler{reg: reg, log: slog.With("component", "router"), feed: f}
 	h.proxy = &httputil.ReverseProxy{
 		// handleForward sets the target URL. FlushInterval -1 sends each stream chunk at once.
 		Director:      func(*http.Request) {},
@@ -46,7 +47,10 @@ func New(reg *registry.Registry, authStore *auth.Store) *Handler {
 			IdleConnTimeout:       90 * time.Second,
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			h.log.Warn("node unreachable", "host", r.URL.Host, "error", err)
+			if h.feed == nil {
+				h.log.Warn("node unreachable", "host", r.URL.Host, "error", err)
+			}
+			h.feed.Unreachable(r.URL.Host)
 			respond.Error(w, http.StatusBadGateway, "node at "+r.URL.Host+" is unreachable")
 		},
 	}
@@ -61,27 +65,19 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 func (h *Handler) handleModels(w http.ResponseWriter, r *http.Request) {
-	u, ok := h.auth.RequireUser(w, r)
-	if !ok {
-		return
-	}
 	type model struct {
 		ID      string `json:"id"`
 		Object  string `json:"object"`
 		OwnedBy string `json:"owned_by"`
 	}
 	data := []model{}
-	for _, m := range h.reg.Models(u.ID, h.auth.GroupIDsFor(u.ID)) {
+	for _, m := range h.reg.Models() {
 		data = append(data, model{ID: m.ID, Object: "model", OwnedBy: m.NodeID})
 	}
 	respond.JSON(w, map[string]any{"object": "list", "data": data})
 }
 
 func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
-	u, ok := h.auth.RequireUser(w, r)
-	if !ok {
-		return
-	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRequestBody))
 	if err != nil {
 		respond.Error(w, http.StatusRequestEntityTooLarge, "request body is too large")
@@ -94,12 +90,22 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, `request body must be JSON with a "model" field`)
 		return
 	}
-	node, found := h.reg.Lookup(req.Model, u.ID, h.auth.GroupIDsFor(u.ID))
+	node, found := h.reg.Lookup(req.Model)
 	if !found {
 		respond.Error(w, http.StatusNotFound, fmt.Sprintf("no live node serves model %q", req.Model))
 		return
 	}
-	h.log.Info("forward", "method", r.Method, "path", r.URL.Path, "model", req.Model, "node_id", node.NodeID, "user_id", u.ID)
+	h.log.Info("forward", "method", r.Method, "path", r.URL.Path, "model", req.Model, "node_id", node.NodeID)
+	var available []string
+	for _, n := range h.reg.Serving(req.Model) {
+		available = append(available, feed.Name(n))
+	}
+	h.feed.Route(h.requester(r), req.Model, available, feed.Name(node), r.Method+" "+r.URL.Path)
+	h.feed.Content(feed.Preview(body))
+	start := time.Now()
+	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	w = rec
+	defer func() { h.feed.Done(rec.status, time.Since(start)) }()
 
 	r.URL = &url.URL{Scheme: "http", Host: node.ListenAddr, Path: r.URL.Path, RawQuery: r.URL.RawQuery}
 	r.Host = node.ListenAddr
@@ -107,3 +113,25 @@ func (h *Handler) handleForward(w http.ResponseWriter, r *http.Request) {
 	r.ContentLength = int64(len(body))
 	h.proxy.ServeHTTP(w, r)
 }
+
+// requester names the caller: the node at the remote IP, else the remote IP.
+func (h *Handler) requester(r *http.Request) string {
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if n, ok := h.reg.NodeByIP(host); ok {
+		return feed.Name(n)
+	}
+	return host
+}
+
+// statusRecorder keeps the response status. Unwrap lets the proxy flush stream chunks.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }

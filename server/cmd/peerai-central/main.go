@@ -18,7 +18,7 @@ import (
 
 	"peerai-serv/internal/api"
 	"peerai-serv/internal/app"
-	"peerai-serv/internal/auth"
+	"peerai-serv/internal/feed"
 	"peerai-serv/internal/join"
 	"peerai-serv/internal/registry"
 	"peerai-serv/internal/router"
@@ -31,31 +31,39 @@ func main() {
 	binDir := flag.String("bin", "dist", "directory with node binaries for /join")
 	ttl := flag.Duration("node-ttl", 45*time.Second, "remove a node after this time without a heartbeat")
 	debug := flag.Bool("debug", false, "log each heartbeat")
+	verbose := flag.Bool("verbose", false, "print plain log lines instead of the coloured feed")
 	flag.Parse()
 
-	level := slog.LevelInfo
+	// The coloured feed replaces the info logs. Warnings and errors still go to stderr.
+	level := slog.LevelWarn
+	if *verbose {
+		level = slog.LevelInfo
+	}
 	if *debug {
 		level = slog.LevelDebug
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 
-	if err := run(*addr, *binDir, *ttl); err != nil {
+	if err := run(*addr, *binDir, *ttl, *verbose); err != nil {
 		slog.Error("central stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(addr, binDir string, ttl time.Duration) error {
+func run(addr, binDir string, ttl time.Duration, verbose bool) error {
 	listen, tailscaleIP, err := resolveListenAddr(addr)
 	if err != nil {
 		return err
 	}
 
+	var f *feed.Feed
+	if !verbose {
+		f = feed.New(os.Stdout)
+	}
 	reg := registry.New(ttl)
-	authStore := auth.New()
 	mux := http.NewServeMux()
-	api.New(reg, authStore).Register(mux)
-	router.New(reg, authStore).Register(mux)
+	api.New(reg, f).Register(mux)
+	router.New(reg, f).Register(mux)
 	app.Register(mux)
 	join.New(binDir).Register(mux)
 
@@ -65,6 +73,7 @@ func run(addr, binDir string, ttl time.Duration) error {
 	}
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	slog.Info("central listening", "addr", ln.Addr().String())
+	f.Banner(ln.Addr().String())
 	if tailscaleIP.IsValid() {
 		printJoinInfo(os.Stdout, tailscaleIP, port)
 	} else {
@@ -73,7 +82,7 @@ func run(addr, binDir string, ttl time.Duration) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	go expireNodesLoop(ctx, reg, ttl/3)
+	go expireNodesLoop(ctx, reg, f, ttl/3)
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -89,7 +98,7 @@ func run(addr, binDir string, ttl time.Duration) error {
 	return nil
 }
 
-func expireNodesLoop(ctx context.Context, reg *registry.Registry, every time.Duration) {
+func expireNodesLoop(ctx context.Context, reg *registry.Registry, f *feed.Feed, every time.Duration) {
 	ticker := time.NewTicker(every)
 	defer ticker.Stop()
 	for {
@@ -97,8 +106,9 @@ func expireNodesLoop(ctx context.Context, reg *registry.Registry, every time.Dur
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			for _, id := range reg.Sweep() {
-				slog.Info("node expired", "node_id", id)
+			for _, n := range reg.Sweep() {
+				slog.Info("node expired", "node_id", n.NodeID)
+				f.Left(n)
 			}
 		}
 	}

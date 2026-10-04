@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -8,55 +9,43 @@ import (
 	"testing"
 	"time"
 
-	"peerai-serv/internal/auth"
+	"peerai-serv/internal/feed"
 	"peerai-serv/internal/registry"
 )
 
 type testEnv struct {
-	srv   *httptest.Server
-	alice auth.User
-	bob   auth.User
-	eve   auth.User
-	group auth.Group
+	srv *httptest.Server
 }
 
 func setup(t *testing.T, node http.HandlerFunc) *testEnv {
 	t.Helper()
+	return setupFeed(t, node, nil)
+}
+
+func setupFeed(t *testing.T, node http.HandlerFunc, f *feed.Feed) *testEnv {
+	t.Helper()
 	fake := httptest.NewServer(node)
 	t.Cleanup(fake.Close)
 	reg := registry.New(time.Minute)
-	store := auth.New()
-	alice, _ := store.CreateUser("alice")
-	bob, _ := store.CreateUser("bob")
-	eve, _ := store.CreateUser("eve")
-	g, _ := store.CreateGroup(alice, "lab")
-	if _, err := store.AddMember(alice, g.GroupID, bob.ID); err != nil {
-		t.Fatal(err)
-	}
 	reg.Upsert(registry.Node{
 		NodeID:     "n1",
-		OwnerID:    alice.ID,
-		GroupIDs:   []string{g.GroupID},
 		ListenAddr: strings.TrimPrefix(fake.URL, "http://"),
 		Services:   []registry.Service{{Models: []string{"qwen"}, Healthy: true}},
 	})
 	mux := http.NewServeMux()
-	New(reg, store).Register(mux)
+	New(reg, f).Register(mux)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return &testEnv{srv: srv, alice: alice, bob: bob, eve: eve, group: g}
+	return &testEnv{srv: srv}
 }
 
-func postKey(t *testing.T, url, body, key string) (int, string) {
+func post(t *testing.T, url, body string) (int, string) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
-	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -66,14 +55,11 @@ func postKey(t *testing.T, url, body, key string) (int, string) {
 	return resp.StatusCode, string(b)
 }
 
-func getKey(t *testing.T, url, key string) (int, string) {
+func get(t *testing.T, url string) (int, string) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if key != "" {
-		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -106,7 +92,6 @@ func TestForwardStreamsBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	req.Header.Set("X-Test-Auth", "forwarded-value")
-	req.Header.Set("Authorization", "Bearer "+env.bob.APIKey)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -124,29 +109,36 @@ func TestForwardStreamsBody(t *testing.T) {
 
 func TestForwardErrors(t *testing.T) {
 	env := setup(t, func(w http.ResponseWriter, r *http.Request) {})
-	if code, _ := postKey(t, env.srv.URL+"/v1/chat/completions", `{"model":"nope"}`, env.alice.APIKey); code != 404 {
+	if code, _ := post(t, env.srv.URL+"/v1/chat/completions", `{"model":"nope"}`); code != 404 {
 		t.Fatalf("unknown model: status %d, want 404", code)
 	}
-	if code, _ := postKey(t, env.srv.URL+"/v1/chat/completions", `not json`, env.alice.APIKey); code != 400 {
+	if code, _ := post(t, env.srv.URL+"/v1/chat/completions", `not json`); code != 400 {
 		t.Fatalf("bad body: status %d, want 400", code)
-	}
-	if code, _ := postKey(t, env.srv.URL+"/v1/chat/completions", `{"model":"qwen"}`, ""); code != 401 {
-		t.Fatalf("missing key: status %d, want 401", code)
-	}
-	if code, _ := postKey(t, env.srv.URL+"/v1/chat/completions", `{"model":"qwen"}`, env.eve.APIKey); code != 404 {
-		t.Fatalf("outsider: status %d, want 404", code)
 	}
 }
 
 func TestModels(t *testing.T) {
 	env := setup(t, func(w http.ResponseWriter, r *http.Request) {})
-	if code, body := getKey(t, env.srv.URL+"/v1/models", env.bob.APIKey); code != 200 || !strings.Contains(body, `"id":"qwen"`) {
-		t.Fatalf("member models = %d %s", code, body)
+	if code, body := get(t, env.srv.URL+"/v1/models"); code != 200 || !strings.Contains(body, `"id":"qwen"`) {
+		t.Fatalf("models = %d %s", code, body)
 	}
-	if code, body := getKey(t, env.srv.URL+"/v1/models", env.eve.APIKey); code != 200 || strings.Contains(body, `"id":"qwen"`) {
-		t.Fatalf("outsider models = %d %s", code, body)
-	}
-	if code, _ := getKey(t, env.srv.URL+"/v1/models", ""); code != 401 {
-		t.Fatalf("missing key models: status %d, want 401", code)
+}
+
+func TestForwardPrintsFeed(t *testing.T) {
+	var out bytes.Buffer
+	env := setupFeed(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}, feed.New(&out))
+	post(t, env.srv.URL+"/v1/chat/completions", `{"model":"qwen","messages":[{"role":"user","content":"hello there"}]}`)
+	got := out.String()
+	for _, want := range []string{
+		"127.0.0.1 selected model qwen · available: n1",
+		"127.0.0.1 -> n1 POST /v1/chat/completions",
+		`: "hello there"`,
+		"<- 418 in ",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("feed misses %q:\n%s", want, got)
+		}
 	}
 }
