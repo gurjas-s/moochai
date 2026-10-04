@@ -22,10 +22,29 @@ Run these commands from the `Client` directory:
 
 ```sh
 cd Client
-go build -o peerai-node ./cmd/peerai-node
+make build
 ```
 
-The command creates one executable named `peerai-node`.
+The command creates one executable at `bin/peerai-node`.
+For debug work, build the dev binary instead:
+
+```sh
+make build-dev
+```
+
+The command creates `bin/peerai-node-dev`.
+Both binaries use the same optimized build.
+Dev differs only in log output.
+Use it for debug work:
+
+```sh
+make run-dev CONFIG=./peerai-node.yaml
+```
+
+`make run` starts the standard binary with request logs.
+`make run-dev` starts the dev binary with dev logs.
+Set `CONFIG` to select the config file and `LOG_FORMAT` to select `text` or `json`.
+Run `make check` before a push (format check, vet, tests) and `make clean` to remove `bin/`.
 
 ## Create the configuration
 
@@ -102,6 +121,20 @@ When `--config` is not provided, the client checks these paths:
 
 1. `~/.config/peerai/node.yaml`
 2. `./peerai-node.yaml`
+
+## Logging
+
+The client has two log modes.
+Set the mode with `--log-mode` or `PEERAI_LOG_MODE`.
+Set the format with `--log-format` or `PEERAI_LOG_FORMAT` (`text` or `json`).
+
+```sh
+./peerai-node --config ./peerai-node.yaml --log-mode requests --log-format text
+PEERAI_LOG_MODE=dev PEERAI_LOG_FORMAT=json ./peerai-node --config ./peerai-node.yaml
+```
+
+- `requests` (default): logs HTTP requests plus warnings and errors.
+- `dev`: adds debug detail for developers (config, identity, backend probe results, model discovery counts, central register and heartbeat results).
 
 At startup, the client loads configuration, resolves its Tailscale IPv4,
 probes configured backends, starts the local listener, and registers with central.

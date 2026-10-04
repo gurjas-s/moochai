@@ -35,3 +35,6 @@ go.work.sum
 # go files
 go.sum
 peerai-serv
+
+# Local build output
+bin/
