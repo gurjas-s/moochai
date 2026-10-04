@@ -3,8 +3,11 @@ package central
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,6 +79,37 @@ func TestPostSendsBearerKey(t *testing.T) {
 	}
 	if gotAuth != "Bearer peerai_test" {
 		t.Fatalf("Authorization = %q, want Bearer key", gotAuth)
+	}
+}
+
+func TestSetCredentialsUpdatesTarget(t *testing.T) {
+	var gotAuth, gotPath string
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = "first"
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer first.Close()
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = "second"
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer second.Close()
+	host, portStr, err := net.SplitHostPort(strings.TrimPrefix(second.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &Client{baseURL: first.URL, httpClient: first.Client()}
+	client.SetCredentials(host, port, "peerai_new")
+	if err := client.Register(context.Background(), Payload{}); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "second" || gotAuth != "Bearer peerai_new" {
+		t.Fatalf("request went to %q with auth %q", gotPath, gotAuth)
 	}
 }
 

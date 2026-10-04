@@ -195,7 +195,7 @@ func run(configPath, apiKeyFlag, logMode, logFormat string) error {
 			"component", "main",
 			"step_1", "open "+manageURL,
 			"step_2", "register with central and add services",
-			"step_3", "restart the node",
+			"step_3", "done, the node picks setup up by itself",
 		)
 	} else {
 		slog.Info("next steps",
@@ -287,7 +287,30 @@ func run(configPath, apiKeyFlag, logMode, logFormat string) error {
 		return err
 	}
 	centralClient.WithAPIKey(cfg.Auth.APIKey)
+	// refreshCredentials re-reads the website setup before each attempt.
+	// Setup from the browser applies on the next heartbeat, no restart.
+	refreshCredentials := func() {
+		creds, err := setup.Load()
+		if err != nil {
+			slog.Warn("reload credentials failed", "component", "main", "error", err)
+			return
+		}
+		host := cfg.Network.CentralHost
+		if strings.TrimSpace(creds.CentralHost) != "" {
+			host = strings.TrimSpace(creds.CentralHost)
+		}
+		port := cfg.Network.CentralPort
+		if creds.CentralPort != 0 {
+			port = creds.CentralPort
+		}
+		key := cfg.Auth.APIKey
+		if strings.TrimSpace(apiKeyFlag) == "" && creds.KeySet() {
+			key = strings.TrimSpace(creds.APIKey)
+		}
+		centralClient.SetCredentials(host, port, key)
+	}
 	payload := func() central.Payload {
+		refreshCredentials()
 		probe(ctx)
 		discover(ctx)
 		services := merged()

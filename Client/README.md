@@ -121,9 +121,10 @@ No key yet? Open the website (usually `http://127.0.0.1:9100/manage`):
 
 1. Section 1: type the central address and a user name, press Register.
    The node registers on central and saves the key by itself.
+   Setup applies on the next heartbeat. No restart.
 2. Section 2: check that your backends appear (Ollama, llama.cpp,
    and vLLM are found by themselves). Add the rest by hand.
-3. Restart the node. Share models from central `/app`.
+3. Share models from central `/app`.
 
 When `--config` is not provided, the client checks these paths:
 

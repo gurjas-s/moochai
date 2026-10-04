@@ -99,7 +99,7 @@ func (s *Server) handleSetupStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSetupSave stores central address and API key from the browser.
-// The node needs a restart to use new values.
+// New values apply on the next heartbeat, no restart.
 func (s *Server) handleSetupSave(w http.ResponseWriter, r *http.Request) {
 	if !requireLoopback(w, r) {
 		return
@@ -123,7 +123,7 @@ func (s *Server) handleSetupSave(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "restart_required": true})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 }
 
 // handleRegister creates a user on central and saves the key.
@@ -171,7 +171,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"status": "ok", "user_id": reg.UserID, "restart_required": true,
+		"status": "ok", "user_id": reg.UserID,
 	})
 }
 
@@ -271,7 +271,7 @@ pre { background: #f4f4f4; padding: 0.75rem; overflow-x: auto; }
 <button onclick="register()">Register</button>
 </div>
 <pre id="regOut"></pre>
-<p class="hint">Registered before? Paste the details below instead, then restart the node.</p>
+<p class="hint">Registered before? Paste the details below instead. New values apply by themselves.</p>
 <div class="row">
 <input id="sCentral" placeholder="central host">
 <input id="sPort" placeholder="central port">
@@ -324,14 +324,14 @@ async function register() {
   const body = {central_host: c.host, central_port: c.port, name: document.getElementById('rName').value.trim()};
   const r = await fetch('/manage/register', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
   const t = await r.text();
-  show('regOut', r.status + ' ' + t + '\nRestart the node to use the new account.');
+  show('regOut', r.status + ' ' + t + '\nThe node picks this up on the next heartbeat.');
   status();
 }
 async function saveSetup() {
   const c = centralOf('s');
   const body = {central_host: c.host, central_port: c.port, api_key: document.getElementById('sKey').value.trim()};
   const r = await fetch('/manage/setup', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-  show('setupOut', r.status + ' ' + await r.text() + '\nRestart the node to use the new setup.');
+  show('setupOut', r.status + ' ' + await r.text() + '\nThe node picks this up on the next heartbeat.');
   document.getElementById('sKey').value = '';
 }
 async function listBackends() {

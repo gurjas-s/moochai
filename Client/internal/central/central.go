@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"peer-ai-client/internal/config"
@@ -72,6 +73,16 @@ func (c *Client) WithLogger(l *slog.Logger) *Client {
 func (c *Client) WithAPIKey(key string) *Client {
 	c.apiKey = key
 	return c
+}
+
+// SetCredentials updates central address and key on a running client.
+// The node calls this before each heartbeat, so website setup applies
+// with no restart. Use it from one goroutine only.
+func (c *Client) SetCredentials(host string, port int, key string) {
+	if strings.TrimSpace(host) != "" && port >= 1 && port <= 65535 {
+		c.baseURL = "http://" + net.JoinHostPort(strings.TrimSpace(host), strconv.Itoa(port))
+	}
+	c.apiKey = strings.TrimSpace(key)
 }
 
 // log returns the active logger. It never returns nil.
