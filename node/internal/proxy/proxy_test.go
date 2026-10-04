@@ -363,3 +363,32 @@ func TestProxyUnknownModelLogHasModel(t *testing.T) {
 		t.Errorf("component = %v, want proxy", entry["component"])
 	}
 }
+
+func TestProxyResponseLogHasPreviews(t *testing.T) {
+	for _, tc := range []struct {
+		name, reply, answer string
+		status              int
+	}{
+		{"json", `{"choices":[{"message":{"content":"hello  there"}}]}`, "hello there", 200},
+		{"sse", "data: {\"choices\":[{\"delta\":{\"content\":\"hel\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n\n", "hello", 200},
+		{"error", `{"error":{"message":"boom"}}`, "error: boom", 500},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := echoBackend(tc.status, tc.reply, nil)
+			defer srv.Close()
+			buf, logger := slogBuffer()
+			h := NewHandler([]Service{
+				StaticService{ID: "s", Endpoint: srv.URL, APIBase: "/v1", Models: []string{"m"}, Healthy: true},
+			}, testNode).(*Handler).WithLogger(logger)
+
+			postJSON(t, h, "/v1/chat/completions", `{"model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`, nil)
+			if !strings.Contains(buf.String(), `"prompt":"hi"`) {
+				t.Errorf("forward log misses the prompt: %s", buf.String())
+			}
+			entry := lastLog(t, buf)
+			if entry["msg"] != "proxy response" || entry["answer"] != tc.answer || entry["status"] != float64(tc.status) {
+				t.Errorf("response log = %v, want answer %q status %d", entry, tc.answer, tc.status)
+			}
+		})
+	}
+}

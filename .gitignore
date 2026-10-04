@@ -36,6 +36,7 @@ go.work.sum
 go.sum
 mooch-central
 mooch-node
+mooch-serv
 
 # Local build output
 bin/

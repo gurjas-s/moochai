@@ -427,11 +427,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"path", r.URL.Path,
 		"model", mr.Model,
 		"service", svc.ServiceID(),
+		"prompt", preview(body),
 	)
 
 	// Serve with the client context as-is: client disconnect still
 	// cancels upstream, but no total deadline is imposed here so an
 	// active SSE stream is never cut off by this package. Any server
 	// timeouts belong to the server package.
-	proxy.ServeHTTP(w, r)
+	start := time.Now()
+	rec := &recorder{ResponseWriter: w, status: http.StatusOK}
+	proxy.ServeHTTP(rec, r)
+	logger.Info("proxy response",
+		"component", "proxy",
+		"node_id", h.nodeID,
+		"method", r.Method,
+		"path", r.URL.Path,
+		"model", mr.Model,
+		"service", svc.ServiceID(),
+		"status", rec.status,
+		"duration", time.Since(start),
+		"answer", responsePreview(rec.body.Bytes()),
+	)
 }
