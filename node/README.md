@@ -37,11 +37,11 @@ Both binaries use the same optimized build.
 Dev differs only in log output:
 
 ```sh
-make run-dev CONFIG=./mooch-node.yaml
+make start-dev CONFIG=./mooch-node.yaml
 ```
 
-`make run` starts the standard binary with request logs.
-`make run-dev` starts the dev binary with dev logs.
+`make start` starts the standard binary with request logs.
+`make start-dev` starts the dev binary with dev logs.
 Set `CONFIG` to select the config file and `LOG_FORMAT` to select `text` or `json`.
 Run `make check` before a push (format check, vet, tests) and `make clean` to remove `bin/`.
 

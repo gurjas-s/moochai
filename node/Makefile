@@ -1,4 +1,4 @@
-# Mooch.ai client build targets.
+# Mooch.ai node build targets.
 # Standard mode runs with request logs.
 # Dev mode runs with debug logs.
 # Both binaries use the same optimized build.
@@ -10,7 +10,7 @@ BINDIR := bin
 CONFIG ?= ./mooch-node.yaml
 LOG_FORMAT ?= text
 
-.PHONY: help build build-dev run run-dev test vet fmt fmt-check check clean
+.PHONY: help build build-dev start start-dev test vet fmt fmt-check check clean
 
 help: # Show the targets.
 	@grep -E '^[a-z-]+:.*# .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*# "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -21,10 +21,10 @@ build: # Build the standard binary.
 build-dev: # Build the dev binary.
 	go build -o $(BINDIR)/$(DEV_BINARY) $(PKG)
 
-run: build # Run the standard binary with request logs.
+start: build # Start the standard binary with request logs.
 	./$(BINDIR)/$(BINARY) --config $(CONFIG) --log-mode requests --log-format $(LOG_FORMAT)
 
-run-dev: build-dev # Run the dev binary with dev logs.
+start-dev: build-dev # Start the dev binary with dev logs.
 	./$(BINDIR)/$(DEV_BINARY) --config $(CONFIG) --log-mode dev --log-format $(LOG_FORMAT)
 
 test: # Run the test suite.
