@@ -5,7 +5,7 @@ Use it to watch TimescaleDB take a steady write rate while /analytics updates li
 Each user has a fast fake backend and workers on keep-alive connections.
 The users share one worker process for each CPU core.
 
-Usage (start central first with `make start` in server/):
+Usage (start central first with `make start` in central/):
     python3 demo/simulate-fast.py                     # 50 users, about 100 requests/s, 2 minutes
     python3 demo/simulate-fast.py --users 100 --rps 200 --minutes 5
     python3 demo/simulate-fast.py --single-ip         # no sudo, but central sees one requester
